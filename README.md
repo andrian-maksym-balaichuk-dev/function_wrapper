@@ -1,218 +1,313 @@
-# fw
+# function_wrapper
 
-`fw` is a header-only C++ library centered on `fw::function_wrapper`, a
-type-erased callable wrapper that can expose one stored callable through
-multiple declared signatures.
+**A header-only C++ library for type-erased callables with multiple declared signatures.**
 
-The library is designed for library and application code that needs:
+`fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. It is a drop-in upgrade for `std::function` in contexts where one signature is not enough.
 
-- value-semantic ownership of callables
-- small-buffer optimization for small callable objects
-- deterministic dispatch across multiple public signatures
-- explicit library policy for implicit conversions
-- one stable CMake target in every integration mode
+---
 
-The exported target is always:
+## The Problem With `std::function`
 
-```cmake
-fw::wrapper
+`std::function<R(Args...)>` models exactly one call signature. When a library needs to accept both `int` and `float` arguments, or both `std::string` and `std::string_view`, the usual options are:
+
+- Write separate overloaded functions — breaks composability, doubles storage.
+- Use a template parameter — impossible to store in a container or pass as a value.
+- Use `std::variant` of multiple `std::function` objects — verbose, awkward to call.
+
+None of these give you one callable value with multiple declared call surfaces.
+
+## The Solution
+
+```cpp
+// One wrapper, two signatures, one stored lambda.
+fw::function_wrapper<int(int, int), float(float, float)> add =
+    [](auto a, auto b) { return a + b; };
+
+int   r1 = add(1, 2);     // dispatches to int(int, int)
+float r2 = add(1.f, 2.f); // dispatches to float(float, float)
 ```
 
-## Why `fw` Exists
+`fw::function_wrapper` selects the correct declared signature at compile time using a deterministic ranking policy. The stored callable is invoked through the chosen signature — no runtime branching, no ambiguity.
 
-`std::function` models one callable signature. `fw::function_wrapper` is built
-for the cases where a library wants one stored callable but more than one
-declared call surface.
+---
 
-Typical examples:
+## Why Use function_wrapper
 
-- numeric APIs that expose both integral and floating-point signatures
-- string-facing APIs that accept `std::string`, `std::string_view`, and
-  string literals through declared overloads
-- framework code that wants a stable callable abstraction with library-defined
-  conversion and dispatch behavior
+| Need | `std::function` | `fw::function_wrapper` |
+|---|---|---|
+| Single call signature | yes | yes |
+| Multiple call signatures | no | yes |
+| Value semantics (copy/move) | yes | yes |
+| Small-buffer optimization | implementation-defined | yes, tunable |
+| Deterministic multi-sig dispatch | n/a | yes |
+| Explicit conversion boundary | n/a | yes |
+| Null-check / empty state | yes | yes |
+| Target introspection | yes | yes |
+| Header-only | no | yes |
+| CMake package | no | yes |
+| Conan package | no | yes |
 
-## Feature Summary
+**Typical use cases:**
 
-- header-only library
-- deterministic multi-signature dispatch
-- exact-match preference before weaker conversion paths
-- support for arithmetic, string-like, inheritance, pointer, and user-defined
-  implicit conversions
-- `const`, lvalue, and rvalue call path support
-- public exception types for empty-call and missing-signature cases
-- CMake package support
-- Conan package recipe
+- Numeric APIs that expose both integral and floating-point signatures from one handler.
+- String APIs that accept `std::string`, `std::string_view`, and C-string literals through declared overloads.
+- Callback registries that need a stable, copyable callable abstraction with controlled conversion behavior.
+- Framework code where implicit conversion policy must be explicit and library-owned, not left to the caller.
+
+---
 
 ## Quick Start
 
 ```cpp
 #include <fw/function_wrapper.hpp>
-
 #include <string_view>
 
-int main() {
+int main()
+{
+    // Multi-signature numeric wrapper
     fw::function_wrapper<int(int, int), float(float, float)> add =
-        [](auto left, auto right) {
-            return left + right;
-        };
+        [](auto a, auto b) { return a + b; };
 
-    const int sum_int = add(2, 3);
-    const float sum_float = add(2, 2.5f);
+    const int   sum_i = add(2, 3);
+    const float sum_f = add(2.0f, 2.5f);
 
-    fw::function_wrapper<std::size_t(std::string_view)> text_size =
-        [](std::string_view text) {
-            return text.size();
-        };
+    // Single-signature string wrapper
+    fw::function_wrapper<std::size_t(std::string_view)> size_of =
+        [](std::string_view s) { return s.size(); };
 
-    const std::size_t size = text_size("fw");
-    return sum_int + static_cast<int>(sum_float) + static_cast<int>(size);
+    const std::size_t n = size_of("function_wrapper");
+
+    return static_cast<int>(sum_i + sum_f + static_cast<float>(n));
 }
 ```
 
-Minimal consumer `CMakeLists.txt`:
+**CMake consumer:**
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
 project(example LANGUAGES CXX)
 
-# Assumes fw has already been added through add_subdirectory(...),
-# find_package(...), or Conan-generated package configuration.
+# fw can be added via add_subdirectory, find_package, or Conan —
+# the target name is always the same.
 add_executable(example main.cpp)
 target_link_libraries(example PRIVATE fw::wrapper)
 ```
 
-## Installation And Consumption
+---
 
-`fw` is intended to work cleanly in the common integration patterns used in
-production C++ projects.
+## Features
 
-Supported consumption modes:
+- **Header-only** — one include path, no compiled library to link.
+- **Multi-signature dispatch** — declare as many `R(Args...)` signatures as needed; the correct one is selected at compile time.
+- **Deterministic ranking policy** — exact match wins; then reference/cv binding; then arithmetic promotions and conversions; then string-like conversions; then class hierarchy; then single-step user-defined implicit conversions. Explicit conversions are never used automatically.
+- **Small-buffer optimization** — small callables (lambdas, function pointers, small functors) are stored inline with no heap allocation.
+- **Value semantics** — copy, move, assign, swap, and reset all work as expected.
+- **Null / empty state** — default-constructed wrapper is empty. `has_value()`, `operator bool`, and comparison with `nullptr` are all provided.
+- **Target introspection** — `target_type()` and `target<T>()` mirror `std::function`.
+- **Exception types** — `fw::bad_call` (empty wrapper called) and `fw::bad_signature_call` (no matching signature) are public and catchable.
+- **CMake package** — exports `fw::wrapper` in all integration modes.
+- **Conan recipe** — included in the repository.
 
-1. source integration with `add_subdirectory(...)`
-2. Git submodule
-3. vendored copy inside a monorepo
-4. installed CMake package via `find_package(fw CONFIG REQUIRED)`
-5. Conan package
+---
 
-The integration details are documented here:
+## Installation
 
-- [Integration Guide](/Users/andrian/mycode/function_wrapper/docs/integration.md)
-- [Examples](/Users/andrian/mycode/function_wrapper/docs/examples.md)
-- [Development Guide](/Users/andrian/mycode/function_wrapper/docs/development.md)
+### Option 1 — `add_subdirectory` (simplest)
 
-## API Overview
-
-Primary public headers:
-
-- [include/fw/function_wrapper.hpp](/Users/andrian/mycode/function_wrapper/include/fw/function_wrapper.hpp)
-- [include/fw/exceptions.hpp](/Users/andrian/mycode/function_wrapper/include/fw/exceptions.hpp)
-
-Primary public types:
-
-- `fw::function_wrapper<Sigs...>`
-- `fw::bad_call`
-- `fw::bad_signature_call`
-
-Useful public operations on `fw::function_wrapper`:
-
-- construction from a compatible callable
-- copy and move semantics
-- `operator()`
-- `call(...)`
-- `has_value()`
-- `reset()`
-- `swap(...)`
-- `target_type()`
-- `target<T>()`
-
-## Dispatch Policy
-
-When more than one declared signature could accept the call, `fw` applies a
-deterministic library-defined ranking. The policy covers:
-
-- exact matches
-- reference and cv-compatible binding
-- promotions and arithmetic conversions
-- common numeric target preference for mixed arithmetic calls
-- C-string to `std::string_view` and `std::string`
-- class hierarchy and pointer hierarchy conversions
-- single-step user-defined implicit conversions
-
-Intentional boundary:
-
-- explicit conversions are not used automatically
-- chained user-defined conversions are not performed
-- truly ambiguous calls remain ambiguous and fail at compile time
-
-## Build And Test
-
-Project requirements:
-
-- CMake 3.20 or newer
-- a C++23-capable compiler
-- GoogleTest is resolved automatically for local test builds
-- Conan 2.x if you package with Conan
-- Clang/LLVM tools if you enable coverage
-
-Local presets:
-
-- `debug`: development build with tests enabled
-- `release`: packaging-oriented build with tests disabled
-
-Standard local workflow:
-
-```bash
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
+```cmake
+add_subdirectory(third_party/fw)
+target_link_libraries(my_target PRIVATE fw::wrapper)
 ```
 
-Release validation:
+### Option 2 — Git submodule
+
+```bash
+git submodule add <fw-repository-url> third_party/fw
+```
+
+```cmake
+add_subdirectory(third_party/fw)
+target_link_libraries(my_target PRIVATE fw::wrapper)
+```
+
+### Option 3 — Installed CMake package
 
 ```bash
 cmake --preset release
 cmake --build --preset release
+cmake --install cmake-build-release --prefix /opt/fw
 ```
 
-## Packaging
+```cmake
+find_package(fw CONFIG REQUIRED)
+target_link_libraries(my_target PRIVATE fw::wrapper)
+```
 
-Create the Conan package from the repository root:
+### Option 4 — Conan
 
 ```bash
 conan create . --build=missing
 ```
 
-Install the CMake package locally:
+The Conan package exports the same `fw::wrapper` CMake target.
+
+See [Integration Guide](docs/integration.md) for full details on each mode.
+
+---
+
+## API Overview
+
+### Primary headers
+
+```cpp
+#include <fw/function_wrapper.hpp>  // function_wrapper, make_function_array
+#include <fw/exceptions.hpp>        // bad_call, bad_signature_call
+```
+
+### `fw::function_wrapper<Sigs...>`
+
+```cpp
+// Construction
+fw::function_wrapper<int(int)> w = some_callable;
+
+// Invocation
+int result = w(42);          // operator()
+int result = w.call(42);     // explicit call member
+
+// State
+bool live  = w.has_value();  // true if a callable is stored
+w.reset();                   // clear the stored callable
+w.swap(other);               // swap with another wrapper
+
+// Introspection
+const std::type_info& ti = w.target_type();
+int (*fn)(int) = *w.target<int(*)(int)>();
+```
+
+### `fw::make_function_array`
+
+Builds a `std::array` of `function_wrapper` objects with a unified signature set deduced from all provided callables:
+
+```cpp
+auto handlers = fw::make_function_array(
+    [](int x)   { return x * 2; },
+    [](int x)   { return x + 10; }
+);
+```
+
+### Exception types
+
+| Type | Thrown when |
+|---|---|
+| `fw::bad_call` | An empty wrapper is called |
+| `fw::bad_signature_call` | A runtime dispatch finds no matching vtable entry |
+
+---
+
+## Dispatch Policy
+
+When a call could match more than one declared signature, `fw` applies a fixed priority ranking:
+
+1. Exact match (identical types after decay)
+2. Reference / cv-qualification binding
+3. Integral and floating-point promotions
+4. Arithmetic conversions (common numeric target preference for mixed-type calls)
+5. C-string to `std::string_view` / `std::string`
+6. Class hierarchy (derived-to-base) and pointer hierarchy
+7. Single-step user-defined implicit conversion
+
+**Hard boundaries:**
+
+- Explicit conversions are never used implicitly.
+- Chained user-defined conversions are not performed.
+- Calls that are genuinely ambiguous across declared signatures fail at compile time.
+
+---
+
+## Build and Test
+
+**Requirements:**
+
+- CMake 3.20+
+- C++23-capable compiler (GCC 13+, Clang 16+, MSVC 19.35+)
+- GoogleTest — fetched automatically for test builds
+- Conan 2.x — only needed for Conan packaging
+- Clang/LLVM tools — only needed for coverage reports
+
+**Presets:**
+
+| Preset | Purpose |
+|---|---|
+| `debug` | Development build, tests enabled |
+| `release` | Packaging build, tests disabled |
 
 ```bash
+# Build and run all tests
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+
+# Release / install build
+cmake --preset release
+cmake --build --preset release
 cmake --install cmake-build-release --prefix /tmp/fw-install
 ```
 
-The installed package exports:
+See [Development Guide](docs/development.md) for the full local workflow, IDE setup, coverage, and packaging steps.
 
-- `fwConfig.cmake`
-- `fwConfigVersion.cmake`
-- `fwTargets.cmake`
-- public headers under `include/fw`
+---
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Integration Guide](docs/integration.md) | All supported integration modes with CMake and Conan |
+| [Examples](docs/examples.md) | Annotated code examples covering the main use cases |
+| [API Reference](docs/api.md) | Full public API reference |
+| [Development Guide](docs/development.md) | Local workflow, test targets, coverage, packaging |
+| [Contributing](CONTRIBUTING.md) | How to contribute: workflow, conventions, review process |
+
+---
 
 ## Repository Layout
 
 ```text
 .
-├── CMakeLists.txt
-├── CMakePresets.json
-├── README.md
-├── conanfile.py
-├── docs/
-├── fwConfig.cmake.in
+├── CMakeLists.txt          # project definition and package install rules
+├── CMakePresets.json       # debug and release presets
+├── conanfile.py            # Conan recipe
+├── fwConfig.cmake.in       # CMake package config template
 ├── include/
 │   └── fw/
-└── tests/
+│       ├── function_wrapper.hpp   # primary public header
+│       ├── exceptions.hpp         # public exception types
+│       └── detail/                # internal implementation headers
+├── tests/                  # GoogleTest-based test suite
+├── docs/                   # documentation
+└── README.md
 ```
 
-## Documentation Map
+---
 
-- [Integration Guide](/Users/andrian/mycode/function_wrapper/docs/integration.md)
-- [Examples](/Users/andrian/mycode/function_wrapper/docs/examples.md)
-- [Development Guide](/Users/andrian/mycode/function_wrapper/docs/development.md)
+## Requirements Summary
+
+| Requirement | Version |
+|---|---|
+| CMake | 3.20+ |
+| C++ standard | C++23 |
+| Compiler (GCC) | 13+ |
+| Compiler (Clang) | 16+ |
+| Compiler (MSVC) | 19.35+ |
+| Conan (optional) | 2.x |
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## License
+
+See [LICENSE](LICENSE) for terms.
