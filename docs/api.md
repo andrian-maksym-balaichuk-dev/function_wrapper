@@ -7,6 +7,7 @@ This document covers the complete public API of `fw`.
 ## Headers
 
 ```cpp
+#include <fw/function_ref.hpp>                 // function_ref<R(Args...)>
 #include <fw/function_wrapper.hpp>            // function_wrapper<Sigs...>, make_function_array
 #include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper<Sigs...>, make_move_only_function_array
 #include <fw/exceptions.hpp>                  // bad_call, bad_signature_call
@@ -231,6 +232,57 @@ Returns a pointer to the stored callable if its type is exactly `T`, otherwise `
 
 ---
 
+## `fw::function_ref<R(Args...)>`
+
+```cpp
+template <class Sig>
+class function_ref;
+```
+
+A nullable, non-owning callable view over one signature.
+
+### Construction and assignment
+
+```cpp
+function_ref() noexcept;
+function_ref(std::nullptr_t) noexcept;
+function_ref(R (*pointer)(Args...)) noexcept;
+
+template <class F>
+function_ref(F& f) noexcept;
+
+template <class F>
+function_ref(const F& f) noexcept;
+```
+
+`function_ref` binds lvalue callables only. Temporary callable objects are rejected to avoid dangling references.
+
+The class is copyable and movable as a cheap view type. `reset()`, `swap()`, `has_value()`, `operator bool`, and comparison with `nullptr` are provided.
+
+### Invocation
+
+```cpp
+R operator()(Args... args) const;
+R call(Args... args) const;
+```
+
+Dispatches directly to the bound callable. Empty invocation throws `fw::bad_call`.
+
+### Member adapters
+
+```cpp
+fw::function_ref<int(int)> ref(object, &Type::member_function);
+fw::function_ref<int&()> member_ref(object, &Type::member_object);
+```
+
+These constructors dispatch through `std::invoke` without allocating or materializing a wrapper lambda.
+
+### Safety
+
+`function_ref` does not extend lifetimes. If the bound callable or object goes out of scope, the view becomes invalid.
+
+---
+
 ## `fw::move_only_function_wrapper<Sigs...>`
 
 ```cpp
@@ -390,6 +442,12 @@ When a call could match more than one declared signature, `fw` applies the follo
 ## Deduction Guide
 
 ```cpp
+template <class Sig>
+function_ref(Sig*) -> function_ref<Sig>;
+
+template <class F>
+function_ref(F&) -> function_ref<detail::fn_sig_t<F>>;
+
 template <class F>
 function_wrapper(F) -> function_wrapper<detail::fn_sig_t<F>>;
 
@@ -397,12 +455,15 @@ template <class F>
 move_only_function_wrapper(F) -> move_only_function_wrapper<detail::fn_sig_t<F>>;
 ```
 
-Allows both wrapper types to deduce their signature from a plain function pointer or a lambda with a single, non-overloaded `operator()`:
+Allows the callable view/wrapper types to deduce their signature from a plain function pointer or a lambda with a single, non-overloaded `operator()`:
 
 ```cpp
 #include <memory>
 
 int add(int a, int b) { return a + b; }
+fw::function_ref ref = &add;
+// deduces fw::function_ref<int(int, int)>
+
 fw::function_wrapper w = add;
 // deduces fw::function_wrapper<int(int, int)>
 

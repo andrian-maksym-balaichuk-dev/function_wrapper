@@ -1,6 +1,8 @@
 #pragma once
 
 #include <fw/function_wrapper.hpp>
+#include <fw/move_only_function_wrapper.hpp>
+#include <fw/static_function.hpp>
 
 #include <array>
 #include <cstddef>
@@ -216,6 +218,43 @@ struct MoveOnlyNumericTransform
     double operator()(double left, double right) const
     {
         return left * right + static_cast<double>(*bias);
+    }
+};
+
+struct RunningTotal
+{
+    int total{ 0 };
+
+    int operator()(int value)
+    {
+        total += value;
+        return total;
+    }
+};
+
+struct ConstIncrement
+{
+    int delta{ 1 };
+
+    int operator()(int value) const
+    {
+        return value + delta;
+    }
+};
+
+struct MemberAdapterTarget
+{
+    int factor{ 3 };
+    int offset{ 5 };
+
+    int scale(int value)
+    {
+        return value * factor;
+    }
+
+    int scale_const(int value) const
+    {
+        return value + offset;
     }
 };
 

@@ -82,6 +82,7 @@ The test suite is split into focused executables. Each can be run directly from 
 |---|---|
 | `fw_concepts_tests` | Concept constraints and type trait correctness |
 | `fw_exceptions_tests` | Exception message stability and throw behavior |
+| `fw_function_ref_tests` | Non-owning callable view construction, borrowing, member adapters |
 | `fw_function_wrapper_tests` | Core wrapper construction, copy/move, call dispatch |
 | `fw_move_only_function_wrapper_tests` | Move-only wrapper construction, ownership transfer, call dispatch |
 | `fw_signature_interface_tests` | Signature selection and dispatch ranking policy |

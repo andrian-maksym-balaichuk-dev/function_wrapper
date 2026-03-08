@@ -1,6 +1,6 @@
 # Examples
 
-This document shows representative uses of `fw::function_wrapper` and `fw::move_only_function_wrapper`, ordered from the simplest to the most advanced.
+This document shows representative uses of `fw::function_wrapper`, `fw::move_only_function_wrapper`, and `fw::function_ref`, ordered from the simplest to the most advanced.
 
 ---
 
@@ -652,5 +652,70 @@ int main()
     const double fractional = transform(1.5, 2.0); // 5.0
 
     return whole + static_cast<int>(fractional);
+}
+```
+
+---
+
+### Non-Owning Lambda View
+
+Use `fw::function_ref` when the callee should borrow an existing callable instead of owning it.
+
+```cpp
+#include <fw/function_ref.hpp>
+
+int main()
+{
+    int bias = 4;
+    auto add_bias = [&bias](int x) { return x + bias; };
+
+    fw::function_ref<int(int)> ref = add_bias;
+    return ref(6); // 10
+}
+```
+
+---
+
+### Borrowed Wrapper
+
+`function_ref` can view an existing owning wrapper without copying or moving it.
+
+```cpp
+#include <fw/function_ref.hpp>
+#include <fw/function_wrapper.hpp>
+
+int main()
+{
+    fw::function_wrapper<int(int)> owner = [](int x) { return x * 2; };
+    fw::function_ref<int(int)> ref = owner;
+
+    return ref(9); // 18
+}
+```
+
+---
+
+### Member Adapters
+
+Bind objects and member pointers directly when an API wants a plain call surface.
+
+```cpp
+#include <fw/function_ref.hpp>
+
+struct Counter {
+    int base{ 3 };
+    int scale(int value) { return value * base; }
+    int current{ 5 };
+};
+
+int main()
+{
+    Counter counter;
+
+    fw::function_ref<int(int)> scale = fw::function_ref<int(int)>(counter, &Counter::scale);
+    fw::function_ref<int&()> current = fw::function_ref<int&()>(counter, &Counter::current);
+
+    current() = 9;
+    return scale(current()); // 27
 }
 ```
