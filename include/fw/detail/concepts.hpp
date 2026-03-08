@@ -2,6 +2,7 @@
 #define FW_DETAIL_CONCEPTS_HPP
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -62,15 +63,29 @@ inline constexpr bool always_false_v = false;
 template <class T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
+template <class T, template <class...> class Template>
+struct is_specialization_of : std::false_type
+{};
+
+template <template <class...> class Template, class... Args>
+struct is_specialization_of<Template<Args...>, Template> : std::true_type
+{};
+
+template <class T, template <class...> class Template>
+inline constexpr bool is_specialization_of_v = is_specialization_of<remove_cvref_t<T>, Template>::value;
+
 
 // ── Function Signature Traits ───────────────────────────────────────────────
-// True only for plain function signatures like R(Args...).
+// True for supported function signatures like R(Args...) and R(Args...) noexcept.
 // clang-format off
 template <class Sig>
 struct is_function_signature : std::false_type {};
 
 template <class R, class... Args>
 struct is_function_signature<R(Args...)> : std::true_type {};
+
+template <class R, class... Args>
+struct is_function_signature<R(Args...) noexcept> : std::true_type {};
 // clang-format on
 
 template <class Sig>
@@ -80,6 +95,71 @@ inline constexpr bool is_function_signature_v = is_function_signature<Sig>::valu
 template <class Sig>
 concept FunctionSignature = is_function_signature_v<Sig>;
 #endif
+
+
+template <class Sig>
+struct signature_traits;
+
+template <class R, class... Args>
+struct signature_traits<R(Args...)>
+{
+    using return_type = R;
+    using base_signature = R(Args...);
+    using pointer_type = R (*)(Args...);
+
+    static constexpr bool is_noexcept = false;
+    static constexpr std::size_t arity = sizeof...(Args);
+};
+
+template <class R, class... Args>
+struct signature_traits<R(Args...) noexcept>
+{
+    using return_type = R;
+    using base_signature = R(Args...);
+    using pointer_type = R (*)(Args...) noexcept;
+
+    static constexpr bool is_noexcept = true;
+    static constexpr std::size_t arity = sizeof...(Args);
+};
+
+template <class Sig>
+using signature_return_t = typename signature_traits<Sig>::return_type;
+
+template <class Sig>
+using base_signature_t = typename signature_traits<Sig>::base_signature;
+
+template <class Sig>
+using signature_pointer_t = typename signature_traits<Sig>::pointer_type;
+
+template <class Sig>
+inline constexpr bool is_noexcept_signature_v = signature_traits<Sig>::is_noexcept;
+
+template <class Sig>
+inline constexpr std::size_t signature_arity_v = signature_traits<Sig>::arity;
+
+template <class LeftSig, class RightSig>
+inline constexpr bool conflicting_signature_pair_v =
+    std::is_same_v<base_signature_t<LeftSig>, base_signature_t<RightSig>> && (is_noexcept_signature_v<LeftSig> != is_noexcept_signature_v<RightSig>);
+
+template <class... Sigs>
+struct has_conflicting_signatures : std::false_type
+{};
+
+template <class Sig, class... Rest>
+struct has_conflicting_signatures<Sig, Rest...>
+: std::bool_constant<((conflicting_signature_pair_v<Sig, Rest>) || ...) || has_conflicting_signatures<Rest...>::value>
+{};
+
+template <class Sig>
+struct has_conflicting_signatures<Sig> : std::false_type
+{};
+
+template <>
+struct has_conflicting_signatures<> : std::false_type
+{};
+
+template <class... Sigs>
+inline constexpr bool has_conflicting_signatures_v = has_conflicting_signatures<Sigs...>::value;
 
 
 // ── Exact Invocability ───────────────────────────────────────────────────────
@@ -97,9 +177,25 @@ struct is_exact_invocable_r_impl<std::void_t<std::invoke_result_t<Fn, Args...>>,
 template <class Fn, class R, class... Args>
 inline constexpr bool is_exact_invocable_r_v = is_exact_invocable_r_impl<void, Fn, R, Args...>::value;
 
+template <class Void, class Fn, class R, class... Args>
+struct is_exact_nothrow_invocable_r_impl : std::false_type
+{};
+
+template <class Fn, class R, class... Args>
+struct is_exact_nothrow_invocable_r_impl<std::void_t<std::invoke_result_t<Fn, Args...>>, Fn, R, Args...>
+: std::bool_constant<std::is_same_v<std::invoke_result_t<Fn, Args...>, R> &&
+                     noexcept(std::invoke(std::declval<Fn>(), std::declval<Args>()...))>
+{};
+
+template <class Fn, class R, class... Args>
+inline constexpr bool is_exact_nothrow_invocable_r_v = is_exact_nothrow_invocable_r_impl<void, Fn, R, Args...>::value;
+
 #if FW_HAS_CONCEPTS
 template <class Fn, class R, class... Args>
 concept ExactInvocableR = std::invocable<Fn, Args...> && std::same_as<std::invoke_result_t<Fn, Args...>, R>;
+
+template <class Fn, class R, class... Args>
+concept ExactNothrowInvocableR = ExactInvocableR<Fn, R, Args...> && noexcept(std::invoke(std::declval<Fn>(), std::declval<Args>()...));
 #endif
 
 
@@ -128,10 +224,22 @@ struct fn_sig<R (*)(Args...), void>
     using type = R(Args...);
 };
 
+template <class R, class... Args>
+struct fn_sig<R (*)(Args...) noexcept, void>
+{
+    using type = R(Args...) noexcept;
+};
+
 template <class C, class R, class... Args>
 struct fn_sig<R (C::*)(Args...), void>
 {
     using type = R(Args...);
+};
+
+template <class C, class R, class... Args>
+struct fn_sig<R (C::*)(Args...) noexcept, void>
+{
+    using type = R(Args...) noexcept;
 };
 
 template <class C, class R, class... Args>
@@ -141,9 +249,21 @@ struct fn_sig<R (C::*)(Args...) const, void>
 };
 
 template <class C, class R, class... Args>
+struct fn_sig<R (C::*)(Args...) const noexcept, void>
+{
+    using type = R(Args...) noexcept;
+};
+
+template <class C, class R, class... Args>
 struct fn_sig<R (C::*)(Args...)&, void>
 {
     using type = R(Args...);
+};
+
+template <class C, class R, class... Args>
+struct fn_sig<R (C::*)(Args...) & noexcept, void>
+{
+    using type = R(Args...) noexcept;
 };
 
 template <class C, class R, class... Args>
@@ -153,15 +273,33 @@ struct fn_sig<R (C::*)(Args...) const&, void>
 };
 
 template <class C, class R, class... Args>
+struct fn_sig<R (C::*)(Args...) const& noexcept, void>
+{
+    using type = R(Args...) noexcept;
+};
+
+template <class C, class R, class... Args>
 struct fn_sig<R (C::*)(Args...)&&, void>
 {
     using type = R(Args...);
 };
 
 template <class C, class R, class... Args>
+struct fn_sig<R (C::*)(Args...) && noexcept, void>
+{
+    using type = R(Args...) noexcept;
+};
+
+template <class C, class R, class... Args>
 struct fn_sig<R (C::*)(Args...) const&&, void>
 {
     using type = R(Args...);
+};
+
+template <class C, class R, class... Args>
+struct fn_sig<R (C::*)(Args...) const&& noexcept, void>
+{
+    using type = R(Args...) noexcept;
 };
 
 template <class F>
@@ -399,18 +537,21 @@ struct signature_candidate_impl<true, R(Args...), CallArgs...>
     static constexpr bool viable = (true && ... && std::is_convertible_v<CallArgs&&, Args>);
 };
 
-template <class R, class... Args, class... CallArgs>
-struct signature_candidate<R(Args...), CallArgs...>
-: signature_candidate_impl<sizeof...(Args) == sizeof...(CallArgs), R(Args...), CallArgs...>
+template <class Sig, class... CallArgs>
+struct signature_candidate
+: signature_candidate_impl<signature_arity_v<Sig> == sizeof...(CallArgs), base_signature_t<Sig>, CallArgs...>
 {};
 
 template <class LeftSig, class RightSig, class... CallArgs>
-struct signature_is_better_than : std::false_type
-{};
+struct signature_is_better_than;
 
 template <class LeftSig, class... CallArgs>
 struct signature_is_better_than<LeftSig, no_matching_signature, CallArgs...>
 : std::bool_constant<signature_candidate<LeftSig, CallArgs...>::viable>
+{};
+
+template <class RightSig, class... CallArgs>
+struct signature_is_better_than<no_matching_signature, RightSig, CallArgs...> : std::false_type
 {};
 
 template <bool SameArity, class LeftSig, class RightSig, class... CallArgs>
@@ -429,13 +570,20 @@ struct signature_is_better_than_impl<true, LeftR(LeftArgs...), RightR(RightArgs.
       ((implicit_conversion_rank<CallArgs&&, LeftArgs>() < implicit_conversion_rank<CallArgs&&, RightArgs>()) || ...)>
 {};
 
-template <class LeftR, class... LeftArgs, class RightR, class... RightArgs, class... CallArgs>
-struct signature_is_better_than<LeftR(LeftArgs...), RightR(RightArgs...), CallArgs...>
-: signature_is_better_than_impl<sizeof...(LeftArgs) == sizeof...(RightArgs) && sizeof...(LeftArgs) == sizeof...(CallArgs), LeftR(LeftArgs...), RightR(RightArgs...), CallArgs...>
+template <class LeftSig, class RightSig, class... CallArgs>
+struct signature_is_better_than
+: signature_is_better_than_impl<signature_arity_v<LeftSig> == signature_arity_v<RightSig> && signature_arity_v<LeftSig> == sizeof...(CallArgs),
+                                base_signature_t<LeftSig>,
+                                base_signature_t<RightSig>,
+                                CallArgs...>
 {};
 
 template <class Sig, class... CallArgs>
 struct signature_matches_common_numeric_target;
+
+template <class... CallArgs>
+struct signature_matches_common_numeric_target<no_matching_signature, CallArgs...> : std::false_type
+{};
 
 template <bool HasArguments, class Sig, class... CallArgs>
 struct signature_matches_common_numeric_target_impl : std::false_type
@@ -450,7 +598,7 @@ struct signature_matches_common_numeric_target_impl<true, R(Target, Rest...), Ca
 
 template <class Sig, class... CallArgs>
 struct signature_matches_common_numeric_target
-: signature_matches_common_numeric_target_impl<(sizeof...(CallArgs) > 0), Sig, CallArgs...>
+: signature_matches_common_numeric_target_impl<(sizeof...(CallArgs) > 0), base_signature_t<Sig>, CallArgs...>
 {};
 
 template <class TL, class... CallArgs>
@@ -512,8 +660,18 @@ struct signature_invoker<R(Args...)>
     }
 };
 
+template <class R, class... Args>
+struct signature_invoker<R(Args...) noexcept>
+{
+    template <class Self, class... CallArgs>
+    static R invoke(Self&& self, CallArgs&&... args) noexcept(noexcept(std::forward<Self>(self).call(static_cast<Args>(std::forward<CallArgs>(args))...)))
+    {
+        return std::forward<Self>(self).call(static_cast<Args>(std::forward<CallArgs>(args))...);
+    }
+};
+
 template <class Sig, class Base, class... CallArgs>
-decltype(auto) invoke_signature_call(Base&& base, CallArgs&&... args)
+decltype(auto) invoke_signature_call(Base&& base, CallArgs&&... args) noexcept(noexcept(signature_invoker<Sig>::invoke(std::forward<Base>(base), std::forward<CallArgs>(args)...)))
 {
     return signature_invoker<Sig>::invoke(std::forward<Base>(base), std::forward<CallArgs>(args)...);
 }

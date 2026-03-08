@@ -39,6 +39,18 @@ struct signature_vtable_entry<R(Args...)>
     rcall_t rcall{ nullptr };
 };
 
+template <class R, class... Args>
+struct signature_vtable_entry<R(Args...) noexcept>
+{
+    using lcall_t = R (*)(void*, Args...) noexcept;        // lvalue ref
+    using clcall_t = R (*)(const void*, Args...) noexcept; // const lvalue ref
+    using rcall_t = R (*)(void*, Args...) noexcept;        // rvalue ref (ptr itself mutable)
+
+    lcall_t lcall{ nullptr };
+    clcall_t clcall{ nullptr };
+    rcall_t rcall{ nullptr };
+};
+
 
 // ── forward declaration ────────────────────────────────────────────────────────
 // The wrapper_vtable struct is defined after wrapper_storage since it needs to refer to it for the lifecycle function
@@ -130,6 +142,12 @@ struct supports_signature<Stored, R(Args...)>
 : std::bool_constant<is_exact_invocable_r_v<Stored&, R, Args...> || is_exact_invocable_r_v<const Stored&, R, Args...> || is_exact_invocable_r_v<Stored&&, R, Args...>>
 {};
 
+template <class Stored, class R, class... Args>
+struct supports_signature<Stored, R(Args...) noexcept>
+: std::bool_constant<is_exact_nothrow_invocable_r_v<Stored&, R, Args...> || is_exact_nothrow_invocable_r_v<const Stored&, R, Args...> ||
+                     is_exact_nothrow_invocable_r_v<Stored&&, R, Args...>>
+{};
+
 template <class Stored, class... Sigs>
 inline constexpr bool supports_any_signature_v = (supports_signature<Stored, Sigs>::value || ...);
 
@@ -181,6 +199,50 @@ R invoke_r(void* ptr, Args... args)
     }
 }
 
+template <class Stored, class R, class... Args>
+R invoke_l_noexcept(void* ptr, Args... args) noexcept
+{
+    auto& fn = *static_cast<Stored*>(ptr);
+    if constexpr (std::is_void_v<R>)
+    {
+        std::invoke(fn, std::forward<Args>(args)...);
+        return;
+    }
+    else
+    {
+        return std::invoke(fn, std::forward<Args>(args)...);
+    }
+}
+
+template <class Stored, class R, class... Args>
+R invoke_cl_noexcept(const void* ptr, Args... args) noexcept
+{
+    const auto& fn = *static_cast<const Stored*>(ptr);
+    if constexpr (std::is_void_v<R>)
+    {
+        std::invoke(fn, std::forward<Args>(args)...);
+        return;
+    }
+    else
+    {
+        return std::invoke(fn, std::forward<Args>(args)...);
+    }
+}
+
+template <class Stored, class R, class... Args>
+R invoke_r_noexcept(void* ptr, Args... args) noexcept
+{
+    if constexpr (std::is_void_v<R>)
+    {
+        std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
+        return;
+    }
+    else
+    {
+        return std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
+    }
+}
+
 // ── vtable entry factory ───────────────────────────────────────────────────────
 // Fills call slots at compile time — only assigns slots the stored type supports.
 
@@ -205,6 +267,30 @@ struct signature_entry_factory<Stored, R(Args...)>
         if constexpr (is_exact_invocable_r_v<Stored&&, R, Args...>)
         {
             e.rcall = &invoke_r<Stored, R, Args...>;
+        }
+
+        return e;
+    }
+};
+
+template <class Stored, class R, class... Args>
+struct signature_entry_factory<Stored, R(Args...) noexcept>
+{
+    static signature_vtable_entry<R(Args...) noexcept> make() noexcept
+    {
+        signature_vtable_entry<R(Args...) noexcept> e{};
+
+        if constexpr (is_exact_nothrow_invocable_r_v<Stored&, R, Args...>)
+        {
+            e.lcall = &invoke_l_noexcept<Stored, R, Args...>;
+        }
+        if constexpr (is_exact_nothrow_invocable_r_v<const Stored&, R, Args...>)
+        {
+            e.clcall = &invoke_cl_noexcept<Stored, R, Args...>;
+        }
+        if constexpr (is_exact_nothrow_invocable_r_v<Stored&&, R, Args...>)
+        {
+            e.rcall = &invoke_r_noexcept<Stored, R, Args...>;
         }
 
         return e;

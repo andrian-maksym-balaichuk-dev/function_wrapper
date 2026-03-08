@@ -21,8 +21,11 @@ class function_wrapper : public detail::signature_interface<function_wrapper<Sig
     static_assert(sizeof...(Sigs) > 0, "fw::function_wrapper requires at least one signature.");
     static_assert(
         (detail::is_function_signature_v<Sigs> && ...),
-        "All fw::function_wrapper template parameters must be plain "
-        "function signatures of the form R(Args...).");
+        "All fw::function_wrapper template parameters must be function "
+        "signatures of the form R(Args...) or R(Args...) noexcept.");
+    static_assert(
+        !detail::has_conflicting_signatures_v<Sigs...>,
+        "fw::function_wrapper does not allow both R(Args...) and R(Args...) noexcept for the same argument list.");
 
 public:
     using self_type = function_wrapper;
@@ -32,13 +35,13 @@ public:
     function_wrapper() noexcept = default;
 
 #if FW_HAS_CONCEPTS
-    template <class F> requires(!std::is_same_v<std::decay_t<F>, self_type>)
+    template <class F> requires(!detail::is_specialization_of_v<F, function_wrapper>)
     function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::function conversion semantics.)
     {
         assign(std::forward<F>(f));
     }
 #else
-    template <class F, std::enable_if_t<!std::is_same_v<std::decay_t<F>, self_type>, int> = 0>
+    template <class F, std::enable_if_t<!detail::is_specialization_of_v<F, function_wrapper>, int> = 0>
     function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::function conversion semantics.)
     {
         assign(std::forward<F>(f));
@@ -90,7 +93,7 @@ public:
     }
 
 #if FW_HAS_CONCEPTS
-    template <class F> requires(!std::is_same_v<std::decay_t<F>, self_type>)
+    template <class F> requires(!detail::is_specialization_of_v<F, function_wrapper>)
     function_wrapper& operator=(F&& f)
     {
         reset();
@@ -98,7 +101,7 @@ public:
         return *this;
     }
 #else
-    template <class F, std::enable_if_t<!std::is_same_v<std::decay_t<F>, self_type>, int> = 0>
+    template <class F, std::enable_if_t<!detail::is_specialization_of_v<F, function_wrapper>, int> = 0>
     function_wrapper& operator=(F&& f)
     {
         reset();

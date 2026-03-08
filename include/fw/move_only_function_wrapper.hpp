@@ -20,8 +20,11 @@ class move_only_function_wrapper : public detail::signature_interface<move_only_
     static_assert(sizeof...(Sigs) > 0, "fw::move_only_function_wrapper requires at least one signature.");
     static_assert(
         (detail::is_function_signature_v<Sigs> && ...),
-        "All fw::move_only_function_wrapper template parameters must be plain "
-        "function signatures of the form R(Args...).");
+        "All fw::move_only_function_wrapper template parameters must be function "
+        "signatures of the form R(Args...) or R(Args...) noexcept.");
+    static_assert(
+        !detail::has_conflicting_signatures_v<Sigs...>,
+        "fw::move_only_function_wrapper does not allow both R(Args...) and R(Args...) noexcept for the same argument list.");
 
 public:
     using self_type = move_only_function_wrapper;
@@ -32,14 +35,14 @@ public:
 
 #if FW_HAS_CONCEPTS
     template <class F>
-        requires(!std::is_same_v<std::decay_t<F>, self_type> && std::constructible_from<std::decay_t<F>, F&&>)
+        requires(!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::constructible_from<std::decay_t<F>, F&&>)
     move_only_function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::move_only_function conversion semantics.)
     {
         assign(std::forward<F>(f));
     }
 #else
     template <class F,
-              std::enable_if_t<!std::is_same_v<std::decay_t<F>, self_type> && std::is_constructible_v<std::decay_t<F>, F&&>, int> = 0>
+              std::enable_if_t<!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::is_constructible_v<std::decay_t<F>, F&&>, int> = 0>
     move_only_function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::move_only_function conversion semantics.)
     {
         assign(std::forward<F>(f));
@@ -73,7 +76,7 @@ public:
 
 #if FW_HAS_CONCEPTS
     template <class F>
-        requires(!std::is_same_v<std::decay_t<F>, self_type> && std::constructible_from<std::decay_t<F>, F&&>)
+        requires(!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::constructible_from<std::decay_t<F>, F&&>)
     move_only_function_wrapper& operator=(F&& f)
     {
         reset();
@@ -82,7 +85,7 @@ public:
     }
 #else
     template <class F,
-              std::enable_if_t<!std::is_same_v<std::decay_t<F>, self_type> && std::is_constructible_v<std::decay_t<F>, F&&>, int> = 0>
+              std::enable_if_t<!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::is_constructible_v<std::decay_t<F>, F&&>, int> = 0>
     move_only_function_wrapper& operator=(F&& f)
     {
         reset();

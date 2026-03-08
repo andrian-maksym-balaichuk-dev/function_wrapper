@@ -13,8 +13,10 @@ namespace
 
 using UnaryFunctionRef = fw::function_ref<int(int)>;
 using BinaryFunctionRef = fw::function_ref<int(int, int)>;
+using NoexceptUnaryFunctionRef = fw::function_ref<int(int) noexcept>;
 
 fw::test_support::ConstIncrement g_increment{ 2 };
+fw::test_support::NothrowIncrement g_nothrow_increment{ 3 };
 
 static_assert(std::is_copy_constructible_v<UnaryFunctionRef>);
 static_assert(std::is_copy_assignable_v<UnaryFunctionRef>);
@@ -25,7 +27,11 @@ static_assert(!std::is_constructible_v<UnaryFunctionRef, const fw::test_support:
 static_assert(!std::is_assignable_v<UnaryFunctionRef&, fw::test_support::RunningTotal&&>);
 static_assert(!std::is_assignable_v<UnaryFunctionRef&, const fw::test_support::ConstIncrement&&>);
 static_assert(std::is_same_v<decltype(fw::function_ref{ &fw::test_support::add }), fw::function_ref<int(int, int)>>);
+static_assert(std::is_same_v<decltype(fw::function_ref{ &fw::test_support::add_noexcept }), fw::function_ref<int(int, int) noexcept>>);
 static_assert(std::is_same_v<decltype(fw::function_ref{ g_increment }), fw::function_ref<int(int)>>);
+static_assert(std::is_same_v<decltype(fw::function_ref{ g_nothrow_increment }), fw::function_ref<int(int) noexcept>>);
+static_assert(!std::is_constructible_v<NoexceptUnaryFunctionRef, fw::test_support::ThrowingIncrement&>);
+static_assert(!std::is_assignable_v<NoexceptUnaryFunctionRef&, fw::test_support::ThrowingIncrement&>);
 
 } // namespace
 
@@ -124,4 +130,27 @@ TEST(FunctionRef, GivenCopiedReferencesWhenInvokedThenTheyAliasTheSameTarget)
     EXPECT_EQ(second(3), 3);
     EXPECT_EQ(first(4), 7);
     EXPECT_EQ(total.total, 7);
+}
+
+TEST(FunctionRef, GivenNoexceptCallableWhenBoundThenBorrowedViewAcceptsNoexceptSignature)
+{
+    fw::test_support::NothrowIncrement increment{ 5 };
+    NoexceptUnaryFunctionRef ref = increment;
+
+    EXPECT_EQ(ref(4), 9);
+}
+
+TEST(FunctionRef, GivenNoexceptWrapperAndMembersWhenBoundThenViewsDispatchWithoutOwning)
+{
+    fw::test_support::MemberAdapterTarget target{ .factor = 6, .offset = 8 };
+    const fw::test_support::MemberAdapterTarget const_target{ .factor = 7, .offset = 9 };
+
+    fw::function_ref<int(int) noexcept> member_ref(target, &fw::test_support::MemberAdapterTarget::scale_noexcept);
+    fw::function_ref<int(int) noexcept> const_member_ref(const_target, &fw::test_support::MemberAdapterTarget::scale_const_noexcept);
+    fw::function_ref<int&() noexcept> member_object_ref(target, &fw::test_support::MemberAdapterTarget::offset);
+
+    EXPECT_EQ(member_ref(2), 12);
+    EXPECT_EQ(const_member_ref(2), 11);
+    member_object_ref() = 10;
+    EXPECT_EQ(target.offset, 10);
 }

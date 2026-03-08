@@ -19,6 +19,16 @@ constexpr int add(int left, int right)
     return left + right;
 }
 
+constexpr int add_noexcept(int left, int right) noexcept
+{
+    return left + right;
+}
+
+constexpr int increment_noexcept(int value) noexcept
+{
+    return value + 1;
+}
+
 constexpr double multiply(double left, double right)
 {
     return left * right;
@@ -151,6 +161,16 @@ struct InvocationCounter
     }
 };
 
+struct NothrowInvocationCounter
+{
+    int* value{ nullptr };
+
+    void operator()() const noexcept
+    {
+        ++*value;
+    }
+};
+
 struct MoveOnlyAdder
 {
     std::unique_ptr<int> bias;
@@ -242,6 +262,39 @@ struct ConstIncrement
     }
 };
 
+struct NothrowIncrement
+{
+    int delta{ 1 };
+
+    int operator()(int value) const noexcept
+    {
+        return value + delta;
+    }
+};
+
+struct ThrowingIncrement
+{
+    int delta{ 1 };
+
+    int operator()(int value) const
+    {
+        return value + delta;
+    }
+};
+
+struct NothrowMixedTransform
+{
+    int operator()(int value) const noexcept
+    {
+        return value + 10;
+    }
+
+    double operator()(double value) const
+    {
+        return value * 2.0;
+    }
+};
+
 struct MemberAdapterTarget
 {
     int factor{ 3 };
@@ -253,6 +306,16 @@ struct MemberAdapterTarget
     }
 
     int scale_const(int value) const
+    {
+        return value + offset;
+    }
+
+    int scale_noexcept(int value) noexcept
+    {
+        return value * factor;
+    }
+
+    int scale_const_noexcept(int value) const noexcept
     {
         return value + offset;
     }

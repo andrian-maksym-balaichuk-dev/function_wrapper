@@ -31,6 +31,19 @@ constexpr auto k_static_add_ref = fw::static_function_ref<int(int, int)>::make<f
 static_assert(k_static_add_ref.has_value());
 static_assert(k_static_add_ref(1, 6) == 7);
 
+constexpr auto k_static_add_noexcept = fw::static_function<int(int, int) noexcept>::make<fw::test_support::add_noexcept>();
+static_assert(k_static_add_noexcept.has_value());
+static_assert(k_static_add_noexcept(2, 4) == 6);
+
+constexpr auto k_static_add_ref_noexcept = fw::static_function_ref<int(int, int) noexcept>::make<fw::test_support::add_noexcept>();
+static_assert(k_static_add_ref_noexcept.has_value());
+static_assert(k_static_add_ref_noexcept(3, 5) == 8);
+
+static_assert((std::is_same_v<decltype(fw::function_wrapper{ &fw::test_support::add_noexcept }), fw::function_wrapper<int(int, int) noexcept>>));
+static_assert((fw::detail::supports_signature<fw::test_support::NothrowIncrement, int(int) noexcept>::value));
+static_assert(!(fw::detail::supports_signature<fw::test_support::ThrowingIncrement, int(int) noexcept>::value));
+static_assert((fw::detail::has_conflicting_signatures_v<int(int), int(int) noexcept>));
+
 } // namespace
 
 TEST(FunctionWrapper, GivenEmptyWrapperWhenInvokedThenBadCallIsThrown)
@@ -249,6 +262,42 @@ TEST(FunctionWrapper, GivenStaticFunctionRefWhenInvokedThenPointerStyleConstexpr
     static_assert(wrapper(10, 5) == 15);
     EXPECT_TRUE(wrapper.has_value());
     EXPECT_EQ(wrapper(4, 8), 12);
+}
+
+TEST(FunctionWrapper, GivenNoexceptSignatureWhenStoredThenNothrowCallableDispatchesCorrectly)
+{
+    fw::function_wrapper<int(int) noexcept> wrapper = fw::test_support::NothrowIncrement{ 4 };
+
+    EXPECT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(3), 7);
+}
+
+TEST(FunctionWrapper, GivenMixedNoexceptSignaturesWhenInvokedThenDistinctOverloadsStillDispatch)
+{
+    fw::function_wrapper<int(int) noexcept, double(double)> wrapper = fw::test_support::NothrowMixedTransform{};
+
+    static_assert(std::is_same_v<decltype(wrapper(2)), int>);
+    static_assert(std::is_same_v<decltype(wrapper(2.5)), double>);
+    EXPECT_EQ(wrapper(2), 12);
+    EXPECT_DOUBLE_EQ(wrapper(2.5), 5.0);
+}
+
+TEST(FunctionWrapper, GivenNoexceptStaticFunctionWhenInvokedThenBindingAndCallsPreserveTheSignature)
+{
+    constexpr auto wrapper = fw::static_function<int(int, int) noexcept>::make<fw::test_support::add_noexcept>();
+
+    static_assert(std::is_same_v<decltype(wrapper(1, 2)), int>);
+    EXPECT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(7, 8), 15);
+    EXPECT_NE(wrapper.target<int(int, int) noexcept>(), nullptr);
+}
+
+TEST(FunctionWrapper, GivenNoexceptStaticFunctionRefWhenInvokedThenPointerOnlyViewAcceptsNoexceptTargets)
+{
+    constexpr auto wrapper = fw::static_function_ref<int(int, int) noexcept>::make<fw::test_support::add_noexcept>();
+
+    EXPECT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(5, 6), 11);
 }
 
 TEST(FunctionWrapper, GivenStaticFunctionWhenConvertedThenFunctionWrapperPreservesDispatch)

@@ -8,6 +8,7 @@ This document covers the complete public API of `fw`.
 
 ```cpp
 #include <fw/function_ref.hpp>                 // function_ref<R(Args...)>
+#include <fw/static_function.hpp>              // static_function<Sigs...>, static_function_ref<R(Args...)>
 #include <fw/function_wrapper.hpp>            // function_wrapper<Sigs...>, make_function_array
 #include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper<Sigs...>, make_move_only_function_array
 #include <fw/exceptions.hpp>                  // bad_call, bad_signature_call
@@ -26,11 +27,13 @@ class function_wrapper;
 
 A type-erased callable wrapper that stores one callable and exposes it through one or more declared call signatures.
 
-`Sigs...` must be plain function signatures of the form `R(Args...)`. At least one signature is required.
+`Sigs...` must be function signatures of the form `R(Args...)` or `R(Args...) noexcept`. At least one signature is required.
+`function_wrapper` rejects signature sets that contain both `R(Args...)` and `R(Args...) noexcept` for the same argument list.
 
 ```cpp
 fw::function_wrapper<int(int, int)>                              // one signature
 fw::function_wrapper<int(int, int), float(float, float)>         // two signatures
+fw::function_wrapper<int(int) noexcept, double(double)>          // mixed noexcept and non-noexcept
 fw::function_wrapper<int(int), float(float), double(double)>     // three signatures
 ```
 
@@ -54,6 +57,7 @@ function_wrapper(F&& f);
 ```
 
 Stores a copy of `f`. `F` must be copy-constructible and callable through at least one declared signature.
+Binding to a declared `noexcept` signature additionally requires `F` to be nothrow-invocable for that exact signature.
 
 Fails to compile if:
 - `F` is not copy-constructible.
@@ -232,14 +236,14 @@ Returns a pointer to the stored callable if its type is exactly `T`, otherwise `
 
 ---
 
-## `fw::function_ref<R(Args...)>`
+## `fw::function_ref<Sig>`
 
 ```cpp
 template <class Sig>
 class function_ref;
 ```
 
-A nullable, non-owning callable view over one signature.
+A nullable, non-owning callable view over one signature. `Sig` may be either `R(Args...)` or `R(Args...) noexcept`.
 
 ### Construction and assignment
 
@@ -247,6 +251,7 @@ A nullable, non-owning callable view over one signature.
 function_ref() noexcept;
 function_ref(std::nullptr_t) noexcept;
 function_ref(R (*pointer)(Args...)) noexcept;
+function_ref(R (*pointer)(Args...) noexcept) noexcept;
 
 template <class F>
 function_ref(F& f) noexcept;
@@ -256,6 +261,7 @@ function_ref(const F& f) noexcept;
 ```
 
 `function_ref` binds lvalue callables only. Temporary callable objects are rejected to avoid dangling references.
+For `function_ref<R(Args...) noexcept>`, the bound callable or member adapter must be nothrow-invocable.
 
 The class is copyable and movable as a cheap view type. `reset()`, `swap()`, `has_value()`, `operator bool`, and comparison with `nullptr` are provided.
 
@@ -280,6 +286,7 @@ These constructors dispatch through `std::invoke` without allocating or material
 ### Safety
 
 `function_ref` does not extend lifetimes. If the bound callable or object goes out of scope, the view becomes invalid.
+Even for `noexcept` signatures, `function_ref` remains nullable, so an empty call still throws `fw::bad_call`.
 
 ---
 
@@ -292,7 +299,8 @@ class move_only_function_wrapper;
 
 A type-erased callable wrapper with the same dispatch, SBO, null-state, and introspection model as `fw::function_wrapper`, but with move-only ownership semantics.
 
-`Sigs...` must be plain function signatures of the form `R(Args...)`. At least one signature is required.
+`Sigs...` must be function signatures of the form `R(Args...)` or `R(Args...) noexcept`. At least one signature is required.
+`move_only_function_wrapper` rejects signature sets that contain both `R(Args...)` and `R(Args...) noexcept` for the same argument list.
 
 ### Construction and assignment
 
@@ -307,6 +315,7 @@ move_only_function_wrapper& operator=(move_only_function_wrapper&& rhs) noexcept
 ```
 
 The callable constructor stores `std::decay_t<F>`. The stored callable must be move-constructible and callable through at least one declared signature.
+Binding to a declared `noexcept` signature additionally requires a nothrow-invocable target.
 
 Copy construction and copy assignment are deleted.
 
@@ -473,6 +482,8 @@ fw::move_only_function_wrapper mw =
 ```
 
 Note: generic lambdas with `auto` parameters cannot be deduced this way because their `operator()` is a template. Provide explicit signatures in that case.
+
+For free functions and non-generic callables, deduction preserves `noexcept`.
 
 ---
 

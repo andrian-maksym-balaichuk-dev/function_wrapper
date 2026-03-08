@@ -2,7 +2,7 @@
 
 **A header-only C++ library for type-erased callables with multiple declared signatures.**
 
-`fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. `fw::move_only_function_wrapper` provides the same dispatch model for move-only callables, and `fw::function_ref` adds a zero-allocation non-owning callable view.
+`fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. `fw::move_only_function_wrapper` provides the same dispatch model for move-only callables, and `fw::function_ref` adds a zero-allocation non-owning callable view.
 
 ---
 
@@ -44,6 +44,7 @@ float r2 = add(1.f, 2.f); // dispatches to float(float, float)
 | Deterministic multi-sig dispatch | n/a | yes |
 | Explicit conversion boundary | n/a | yes |
 | Null-check / empty state | yes | yes |
+| `noexcept` signature declarations | no | yes |
 | Target introspection | yes | yes |
 | Header-only | no | yes |
 | CMake package | no | yes |
@@ -101,8 +102,9 @@ target_link_libraries(example PRIVATE fw::wrapper)
 ## Features
 
 - **Header-only** — one include path, no compiled library to link.
-- **Multi-signature dispatch** — declare as many `R(Args...)` signatures as needed; the correct one is selected at compile time.
+- **Multi-signature dispatch** — declare as many `R(Args...)` or `R(Args...) noexcept` signatures as needed; the correct one is selected at compile time.
 - **Deterministic ranking policy** — exact match wins; then reference/cv binding; then arithmetic promotions and conversions; then string-like conversions; then class hierarchy; then single-step user-defined implicit conversions. Explicit conversions are never used automatically.
+- **Strict `noexcept` binding** — a `noexcept` signature only accepts nothrow-invocable targets, and `R(Args...)` / `R(Args...) noexcept` may not coexist for the same argument list.
 - **Small-buffer optimization** — small callables (lambdas, function pointers, small functors) are stored inline with no heap allocation.
 - **Three callable roles** — `function_wrapper` is copyable, `move_only_function_wrapper` stores move-only callables, and `function_ref` is a non-owning view.
 - **Null / empty state** — default-constructed wrapper is empty. `has_value()`, `operator bool`, and comparison with `nullptr` are all provided.
@@ -178,6 +180,8 @@ int result = ref(42);
 
 `function_ref` is a non-owning view. It does not extend lifetimes and rejects temporary callable objects.
 
+`fw::function_ref<R(Args...) noexcept>` is also supported for nothrow-callable lvalues and member adapters.
+
 ### `fw::function_wrapper<Sigs...>`
 
 ```cpp
@@ -198,6 +202,8 @@ const std::type_info& ti = w.target_type();
 int (*fn)(int) = *w.target<int(*)(int)>();
 ```
 
+Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. For the same base signature, you must choose one or the other.
+
 ### `fw::move_only_function_wrapper<Sigs...>`
 
 ```cpp
@@ -207,6 +213,17 @@ fw::move_only_function_wrapper<int(int)> w =
     [state = std::make_unique<int>(4)](int x) { return x + *state; };
 
 int result = w(8);
+```
+
+`fw::static_function` and `fw::static_function_ref` also accept `noexcept` function signatures:
+
+```cpp
+#include <fw/static_function.hpp>
+
+int add_noexcept(int a, int b) noexcept { return a + b; }
+
+constexpr auto sf = fw::static_function<int(int, int) noexcept>::make<add_noexcept>();
+constexpr auto sr = fw::static_function_ref<int(int, int) noexcept>::make<add_noexcept>();
 ```
 
 ### `fw::make_function_array`
@@ -250,6 +267,12 @@ When a call could match more than one declared signature, `fw` applies a fixed p
 - Explicit conversions are never used implicitly.
 - Chained user-defined conversions are not performed.
 - Calls that are genuinely ambiguous across declared signatures fail at compile time.
+- `R(Args...)` and `R(Args...) noexcept` are treated as distinct declared signatures and cannot be mixed for the same `R`/`Args...`.
+
+## `noexcept` Notes
+
+- A declared `noexcept` signature only accepts a target that is nothrow-invocable with that exact signature.
+- `function_wrapper`, `move_only_function_wrapper`, `function_ref`, and `static_function_ref` remain nullable. Empty-state calls still throw `fw::bad_call` or `fw::bad_signature_call`, so their public call operators are not themselves `noexcept`.
 
 ---
 

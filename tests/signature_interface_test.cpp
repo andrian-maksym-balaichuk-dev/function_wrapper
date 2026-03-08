@@ -12,6 +12,8 @@ using BinaryWrapper = fw::function_wrapper<int(int, int)>;
 using BinaryInterface = fw::detail::signature_interface<BinaryWrapper, int(int, int)>;
 using NullaryWrapper = fw::function_wrapper<int()>;
 using NullaryInterface = fw::detail::signature_interface<NullaryWrapper, int()>;
+using NoexceptUnaryWrapper = fw::function_wrapper<int(int) noexcept>;
+using NoexceptUnaryInterface = fw::detail::signature_interface<NoexceptUnaryWrapper, int(int) noexcept>;
 
 } // namespace
 
@@ -63,4 +65,12 @@ TEST(SignatureInterface, GivenVoidSignatureWhenInvokedThenConstAndRvalueSlotsDis
     std::move(wrapper)();
 
     EXPECT_EQ(calls, 2);
+}
+
+TEST(SignatureInterface, GivenNoexceptDeclaredSignatureWhenCalledThenTheMatchingBaseStillDispatches)
+{
+    NoexceptUnaryWrapper wrapper = fw::test_support::NothrowIncrement{ 3 };
+
+    static_assert(!noexcept(std::declval<NoexceptUnaryInterface&>()(1)));
+    EXPECT_EQ(static_cast<NoexceptUnaryInterface&>(wrapper)(4), 7);
 }

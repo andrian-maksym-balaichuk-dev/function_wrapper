@@ -1,6 +1,6 @@
 # Examples
 
-This document shows representative uses of `fw::function_wrapper`, `fw::move_only_function_wrapper`, and `fw::function_ref`, ordered from the simplest to the most advanced.
+This document shows representative uses of `fw::function_wrapper`, `fw::move_only_function_wrapper`, and `fw::function_ref`, ordered from the simplest to the most advanced. Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`.
 
 ---
 
@@ -49,6 +49,31 @@ int main()
 ```
 
 The dispatch happens entirely at compile time — no `if/else` or `std::visit` at the callsite.
+
+---
+
+## 2a. `noexcept` Signatures
+
+Use a declared `noexcept` signature when the bound target is nothrow-invocable and you want that guarantee represented in the wrapper type.
+
+```cpp
+#include <fw/function_ref.hpp>
+#include <fw/function_wrapper.hpp>
+#include <fw/static_function.hpp>
+
+int add_noexcept(int a, int b) noexcept { return a + b; }
+
+int main()
+{
+    fw::function_wrapper<int(int, int) noexcept> owned = add_noexcept;
+    fw::function_ref<int(int, int) noexcept> borrowed = add_noexcept;
+    constexpr auto plain_ref = fw::static_function_ref<int(int, int) noexcept>::make<add_noexcept>();
+
+    return owned(1, 2) + borrowed(3, 4) + plain_ref(5, 6);
+}
+```
+
+`noexcept` is enforced at binding time. Nullable wrappers and refs still throw `fw::bad_call` when empty, so their public call operators are not themselves `noexcept`.
 
 ---
 

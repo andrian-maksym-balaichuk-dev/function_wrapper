@@ -13,12 +13,16 @@ using HeapVTable = fw::detail::vtable_instance<fw::test_support::LargeAdder, int
 using MoveOnlyVTable = fw::detail::vtable_instance<fw::test_support::MoveOnlyAdder, int(int, int)>;
 using VoidStorage = fw::detail::wrapper_storage<void()>;
 using VoidVTable = fw::detail::vtable_instance<fw::test_support::InvocationCounter, void()>;
+using NoexceptStorage = fw::detail::wrapper_storage<int(int, int) noexcept>;
+using NoexceptVTable = fw::detail::vtable_instance<int (*)(int, int) noexcept, int(int, int) noexcept>;
 
 } // namespace
 
 TEST(VTable, GivenCallableTypesWhenInspectedThenSupportedSignaturesAreReported)
 {
     EXPECT_TRUE((fw::detail::supports_signature<int (*)(int, int), int(int, int)>::value));
+    EXPECT_TRUE((fw::detail::supports_signature<int (*)(int, int) noexcept, int(int, int) noexcept>::value));
+    EXPECT_FALSE((fw::detail::supports_signature<int (*)(int, int), int(int, int) noexcept>::value));
     EXPECT_FALSE((fw::detail::supports_signature<fw::test_support::LvalueOnlyFunction, int(int)>::value));
     EXPECT_TRUE((fw::detail::supports_any_signature_v<fw::test_support::LvalueOnlyFunction, int(), void()>));
 }
@@ -47,6 +51,20 @@ TEST(VTable, GivenSupportedCallablesWhenEntriesAreBuiltThenExpectedSlotsExist)
     EXPECT_NE(void_entry.lcall, nullptr);
     EXPECT_NE(void_entry.clcall, nullptr);
     EXPECT_NE(void_entry.rcall, nullptr);
+}
+
+TEST(VTable, GivenNoexceptSignatureWhenEntryIsBuiltThenSlotsUseNoexceptThunks)
+{
+    auto* noexcept_make = &fw::detail::signature_entry_factory<int (*)(int, int) noexcept, int(int, int) noexcept>::make;
+    const auto noexcept_entry = noexcept_make();
+
+    static_assert(std::is_nothrow_invocable_r_v<int, decltype(noexcept_entry.lcall), void*, int, int>);
+    static_assert(std::is_nothrow_invocable_r_v<int, decltype(noexcept_entry.clcall), const void*, int, int>);
+    static_assert(std::is_nothrow_invocable_r_v<int, decltype(noexcept_entry.rcall), void*, int, int>);
+
+    EXPECT_NE(noexcept_entry.lcall, nullptr);
+    EXPECT_NE(noexcept_entry.clcall, nullptr);
+    EXPECT_NE(noexcept_entry.rcall, nullptr);
 }
 
 TEST(VTable, GivenMoveOnlyStoredTypeWhenVTableIsBuiltThenCopyThunkIsNullAndMoveStillWorks)
@@ -192,6 +210,25 @@ TEST(VTable, GivenVoidCallableWhenInvokedThenAllSlotsExecuteTheStoredObject)
     EXPECT_EQ(calls, 3);
 
     VoidVTable::destroy(storage);
+    EXPECT_EQ(storage.kind, fw::detail::storage_kind::Empty);
+    EXPECT_EQ(storage.vt, nullptr);
+}
+
+TEST(VTable, GivenNoexceptStorageWhenInvokedThenAllSlotsRemainCallable)
+{
+    NoexceptStorage storage{};
+    const auto* table = NoexceptVTable::get();
+    const auto& entry = static_cast<const fw::detail::signature_vtable_entry<int(int, int) noexcept>&>(*table);
+
+    fw::detail::fw_construct<int (*)(int, int) noexcept>(storage.payload.sbo, &fw::test_support::add_noexcept);
+    storage.kind = fw::detail::storage_kind::Small;
+    storage.vt = table;
+
+    EXPECT_EQ(entry.lcall(NoexceptVTable::get_ptr(storage), 1, 2), 3);
+    EXPECT_EQ(entry.clcall(NoexceptVTable::get_cptr(storage), 2, 3), 5);
+    EXPECT_EQ(entry.rcall(NoexceptVTable::get_ptr(storage), 3, 4), 7);
+
+    NoexceptVTable::destroy(storage);
     EXPECT_EQ(storage.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(storage.vt, nullptr);
 }

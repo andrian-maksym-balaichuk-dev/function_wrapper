@@ -20,16 +20,21 @@ template <class... Sigs>
 class static_function
 {
     static_assert(sizeof...(Sigs) > 0, "fw::static_function requires at least one signature.");
-    static_assert((detail::is_function_signature_v<Sigs> && ...), "All fw::static_function template parameters must be plain function signatures.");
+    static_assert(
+        (detail::is_function_signature_v<Sigs> && ...),
+        "All fw::static_function template parameters must be function signatures of the form R(Args...) or R(Args...) noexcept.");
+    static_assert(
+        !detail::has_conflicting_signatures_v<Sigs...>,
+        "fw::static_function does not allow both R(Args...) and R(Args...) noexcept for the same argument list.");
 
     template <class Sig>
     struct slot;
 
     // Each declared signature gets its own pointer slot inside the tuple.
-    template <class R, class... Args>
-    struct slot<R(Args...)>
+    template <class Sig>
+    struct slot
     {
-        using pointer_type = R (*)(Args...);
+        using pointer_type = detail::signature_pointer_t<Sig>;
         pointer_type pointer{ nullptr };
     };
 
@@ -204,6 +209,23 @@ private:
         }
     };
 
+    template <class R, class... Args>
+    struct pointer_invoker_<R(Args...) noexcept>
+    {
+        template <class... CallArgs>
+        static constexpr R invoke(typename slot<R(Args...) noexcept>::pointer_type pointer, CallArgs&&... args) noexcept
+        {
+            if constexpr (std::is_void_v<R>)
+            {
+                pointer(static_cast<Args>(std::forward<CallArgs>(args))...);
+            }
+            else
+            {
+                return pointer(static_cast<Args>(std::forward<CallArgs>(args))...);
+            }
+        }
+    };
+
     template <class Sig, class... CallArgs>
     static constexpr decltype(auto) invoke_pointer_(typename slot<Sig>::pointer_type pointer, CallArgs&&... args)
     {
@@ -232,6 +254,53 @@ struct static_function_ref<R(Args...)>
     static FW_CONSTEVAL static_function_ref make() noexcept
     {
         static_assert(std::is_same_v<detail::remove_cvref_t<decltype(+Function)>, pointer_type>, "fw::static_function_ref: Function must match the declared signature.");
+        return static_function_ref(+Function);
+    }
+
+    [[nodiscard]] constexpr bool has_value() const noexcept
+    {
+        return m_pointer != nullptr;
+    }
+
+    [[nodiscard]] constexpr explicit operator bool() const noexcept
+    {
+        return has_value();
+    }
+
+    constexpr R operator()(Args... args) const
+    {
+        if (!m_pointer)
+        {
+            throw bad_call{};
+        }
+        if constexpr (std::is_void_v<R>)
+        {
+            m_pointer(std::forward<Args>(args)...);
+        }
+        else
+        {
+            return m_pointer(std::forward<Args>(args)...);
+        }
+    }
+
+private:
+    pointer_type m_pointer{ nullptr };
+};
+
+template <class R, class... Args>
+struct static_function_ref<R(Args...) noexcept>
+{
+    using pointer_type = R (*)(Args...) noexcept;
+
+    constexpr static_function_ref() noexcept = default;
+    constexpr explicit static_function_ref(pointer_type pointer) noexcept : m_pointer(pointer) {}
+
+    template <auto Function>
+    static FW_CONSTEVAL static_function_ref make() noexcept
+    {
+        static_assert(
+            std::is_same_v<detail::remove_cvref_t<decltype(+Function)>, pointer_type>,
+            "fw::static_function_ref: Function must match the declared signature.");
         return static_function_ref(+Function);
     }
 

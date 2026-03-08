@@ -37,12 +37,19 @@ TEST(Concepts, GivenCallableTraitsWhenQueriedThenTheyReportSupportedShapes)
     using unique_types = fw::detail::unique_tl<int, int, double>;
 
     EXPECT_TRUE((fw::detail::is_function_signature_v<int(int)>));
+    EXPECT_TRUE((fw::detail::is_function_signature_v<int(int) noexcept>));
     EXPECT_FALSE((fw::detail::is_function_signature_v<int>));
     EXPECT_TRUE((fw::detail::is_exact_invocable_r_v<decltype(&fw::test_support::add), int, int, int>));
+    EXPECT_TRUE((fw::detail::is_exact_nothrow_invocable_r_v<decltype(&fw::test_support::add_noexcept), int, int, int>));
+    EXPECT_FALSE((fw::detail::is_exact_nothrow_invocable_r_v<decltype(&fw::test_support::add), int, int, int>));
     EXPECT_TRUE((fw::detail::fits_in_sbo_v<int (*)(int, int)>));
     EXPECT_FALSE((fw::detail::fits_in_sbo_v<fw::test_support::LargeAdder>));
     EXPECT_TRUE((std::is_same_v<fw::detail::fn_sig_t<decltype(&fw::test_support::add)>, int(int, int)>));
+    EXPECT_TRUE((std::is_same_v<fw::detail::fn_sig_t<decltype(&fw::test_support::add_noexcept)>, int(int, int) noexcept>));
+    EXPECT_TRUE((std::is_same_v<fw::detail::base_signature_t<int(int) noexcept>, int(int)>));
     EXPECT_TRUE((std::is_same_v<unique_types, fw::detail::typelist<int, double>>));
+    EXPECT_TRUE((fw::detail::has_conflicting_signatures_v<int(int), int(int) noexcept>));
+    EXPECT_FALSE((fw::detail::has_conflicting_signatures_v<int(int), long(long) noexcept>));
 }
 
 TEST(Concepts, GivenConvertibleTypesWhenRankedThenLibraryPolicyIsApplied)

@@ -101,6 +101,94 @@ public:
     R operator()(Args... args) && { return dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
     // clang-format on
 };
+
+template <class Derived, class R, class... Args>
+struct signature_interface<Derived, R(Args...) noexcept>
+{
+private:
+    static R dispatch_l_(Derived& self, Args... args)
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            FW_UNLIKELY throw bad_call{};
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
+        if (!entry.lcall)
+        {
+            FW_UNLIKELY throw bad_signature_call{};
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+        }
+        else
+        {
+            entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            return;
+        }
+    }
+
+    static R dispatch_cl_(const Derived& self, Args... args)
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            FW_UNLIKELY throw bad_call{};
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
+        if (!entry.clcall)
+        {
+            FW_UNLIKELY throw bad_signature_call{};
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+        }
+        else
+        {
+            entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            return;
+        }
+    }
+
+    static R dispatch_r_(Derived& self, Args... args)
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            FW_UNLIKELY throw bad_call{};
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
+        if (!entry.rcall)
+        {
+            FW_UNLIKELY throw bad_signature_call{};
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+        }
+        else
+        {
+            entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            return;
+        }
+    }
+
+public:
+    // clang-format off
+    R call(Args... args) & { return dispatch_l_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
+    R call(Args... args) const& { return dispatch_cl_(static_cast<const Derived&>(*this), std::forward<Args>(args)...); }
+    R call(Args... args) && { return dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
+
+    R operator()(Args... args) & { return dispatch_l_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
+    R operator()(Args... args) const& { return dispatch_cl_(static_cast<const Derived&>(*this), std::forward<Args>(args)...); }
+    R operator()(Args... args) && { return dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
+    // clang-format on
+};
 } // namespace fw::detail
 
 #endif // FW_DETAIL_SIGNATURE_INTERFACE_HPP

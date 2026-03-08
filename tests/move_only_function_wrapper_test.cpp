@@ -20,6 +20,7 @@ static_assert(std::is_move_assignable_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_copy_constructible_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_copy_assignable_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_constructible_v<BinaryMoveOnlyWrapper, fw::test_support::MoveOnlyAdder&>);
+static_assert((fw::detail::supports_signature<fw::test_support::NothrowIncrement, int(int) noexcept>::value));
 
 } // namespace
 
@@ -122,4 +123,31 @@ TEST(MoveOnlyFunctionWrapper, GivenMoveOnlyFunctionArrayWhenBuiltThenElementsOwn
     EXPECT_DOUBLE_EQ(wrappers[1](1.5), 3.0);
     EXPECT_THROW(static_cast<void>(wrappers[0](1.5)), fw::bad_signature_call);
     EXPECT_THROW(static_cast<void>(wrappers[1](4)), fw::bad_signature_call);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenNoexceptSignatureWhenStoredThenMoveOnlyTargetsCanStillDispatch)
+{
+    fw::move_only_function_wrapper<int(int) noexcept> wrapper =
+        [bias = std::make_unique<int>(4)](int value) noexcept { return value + *bias; };
+
+    EXPECT_EQ(wrapper(3), 7);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenMixedNoexceptSignaturesWhenInvokedThenSelectionMatchesDeclaredKinds)
+{
+    fw::move_only_function_wrapper<int(int) noexcept, double(double)> wrapper =
+        [bias = std::make_unique<int>(2)](auto value) noexcept(noexcept(value + value)) {
+            using value_type = decltype(value);
+            if constexpr (std::is_same_v<value_type, int>)
+            {
+                return value + *bias;
+            }
+            else
+            {
+                return value * 2.0;
+            }
+        };
+
+    EXPECT_EQ(wrapper(5), 7);
+    EXPECT_DOUBLE_EQ(wrapper(1.5), 3.0);
 }
