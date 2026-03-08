@@ -30,6 +30,12 @@
 #define FW_UNLIKELY
 #endif
 
+#if defined(__cpp_consteval) && __cpp_consteval >= 201811L
+#define FW_CONSTEVAL consteval
+#else
+#define FW_CONSTEVAL constexpr
+#endif
+
 #if __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
 #define FW_NODISCARD_MSG(msg) [[nodiscard(msg)]]
 #else
@@ -40,12 +46,6 @@
 #define FW_HAS_STD_UNREACHABLE 1
 #else
 #define FW_HAS_STD_UNREACHABLE 0
-#endif
-
-#if FW_HAS_STD_UNREACHABLE
-#define FW_UNREACHABLE() std::unreachable()
-#else
-#define FW_UNREACHABLE() ((void)0)
 #endif
 
 // Small-buffer optimization capacity used by the wrapper.

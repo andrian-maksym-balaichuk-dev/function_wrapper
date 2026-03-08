@@ -3,8 +3,8 @@
 
 #include <fw/detail/concepts.hpp>
 #include <fw/detail/signature_interface.hpp>
+#include <fw/static_function.hpp>
 #include <fw/detail/vtable.hpp>
-#include <fw/exceptions.hpp>
 
 #include <array>
 #include <typeinfo>
@@ -12,7 +12,6 @@
 
 namespace fw
 {
-
 // ── function_wrapper ───────────────────────────────────────────────────────────
 // The class inherits one CRTP signature_interface base per signature.
 
@@ -340,6 +339,7 @@ auto make_function_array(Fs&&... fs)
 // Verify that the function_wrapper template is small enough to fit the expected number of signatures in the SBO buffer.
 // If this static_assert fails, it means either FW_SBO_SIZE is too small or the vtable layout has unexpectedly changed
 // and become larger, and you should investigate which case it is and adjust FW_SBO_SIZE if appropriate.
+
 static_assert(sizeof(function_wrapper<int(int, int)>) <= sizeof(void*) * 8, "fw::function_wrapper is unexpectedly large; check FW_SBO_SIZE.");
 } // namespace fw
 

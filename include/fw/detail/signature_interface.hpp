@@ -38,9 +38,8 @@ private:
         else
         {
             entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            return;
         }
-
-        FW_UNREACHABLE();
     }
 
     static R dispatch_cl_(const Derived& self, Args... args)
@@ -63,9 +62,8 @@ private:
         else
         {
             entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            return;
         }
-
-        FW_UNREACHABLE();
     }
 
     static R dispatch_r_(Derived& self, Args... args)
@@ -88,9 +86,8 @@ private:
         else
         {
             entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            return;
         }
-
-        FW_UNREACHABLE();
     }
 
 public:

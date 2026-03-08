@@ -11,12 +11,12 @@
 namespace fw::test_support
 {
 
-inline int add(int left, int right)
+constexpr int add(int left, int right)
 {
     return left + right;
 }
 
-inline double multiply(double left, double right)
+constexpr double multiply(double left, double right)
 {
     return left * right;
 }

@@ -8,6 +8,31 @@
 
 #include "test_types.hpp"
 
+namespace
+{
+
+constexpr auto k_static_add = fw::static_function<int(int, int)>::make<fw::test_support::add>();
+static_assert(k_static_add.has_value());
+static_assert(k_static_add(2, 3) == 5);
+
+constexpr auto make_mixed_static_function()
+{
+    fw::static_function<int(int, int), double(double, double)> wrapper;
+    wrapper.bind<int(int, int)>(fw::test_support::add);
+    wrapper.bind<double(double, double)>(fw::test_support::multiply);
+    return wrapper;
+}
+
+constexpr auto k_mixed_static = make_mixed_static_function();
+static_assert(k_mixed_static(4, 5) == 9);
+static_assert(k_mixed_static(2.0, 4.0) == 8.0);
+
+constexpr auto k_static_add_ref = fw::static_function_ref<int(int, int)>::make<fw::test_support::add>();
+static_assert(k_static_add_ref.has_value());
+static_assert(k_static_add_ref(1, 6) == 7);
+
+} // namespace
+
 TEST(FunctionWrapper, GivenEmptyWrapperWhenInvokedThenBadCallIsThrown)
 {
     fw::function_wrapper<int(int, int)> wrapper;
@@ -192,4 +217,36 @@ TEST(FunctionWrapper, GivenUserDefinedTypesWhenInvokedThenImplicitConversionsAre
     fw::function_wrapper<std::size_t(std::string_view)> view_size = [](std::string_view text) { return text.size(); };
     fw::test_support::NameView name_view{};
     EXPECT_EQ(view_size(name_view), name_view.value.size());
+}
+
+TEST(FunctionWrapper, GivenStaticFunctionWhenInvokedThenConstexprAndRuntimeCallsMatch)
+{
+    constexpr auto wrapper = fw::static_function<int(int, int)>::make<fw::test_support::add>();
+    static_assert(wrapper(8, 2) == 10);
+    EXPECT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(3, 9), 12);
+    EXPECT_NE(wrapper.target<int(int, int)>(), nullptr);
+}
+
+TEST(FunctionWrapper, GivenStaticFunctionWithMultipleSignaturesWhenInvokedThenBestSignatureIsSelected)
+{
+    constexpr auto wrapper = [] {
+        fw::static_function<int(int, int), double(double, double)> result;
+        result.bind<int(int, int)>(fw::test_support::add);
+        result.bind<double(double, double)>(fw::test_support::multiply);
+        return result;
+    }();
+
+    static_assert(std::is_same_v<decltype(wrapper(1, 2)), int>);
+    static_assert(std::is_same_v<decltype(wrapper(1.5, 2.0)), double>);
+    EXPECT_EQ(wrapper(6, 7), 13);
+    EXPECT_DOUBLE_EQ(wrapper(1.5, 3.0), 4.5);
+}
+
+TEST(FunctionWrapper, GivenStaticFunctionRefWhenInvokedThenPointerStyleConstexprWrapperWorks)
+{
+    constexpr auto wrapper = fw::static_function_ref<int(int, int)>::make<fw::test_support::add>();
+    static_assert(wrapper(10, 5) == 15);
+    EXPECT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(4, 8), 12);
 }

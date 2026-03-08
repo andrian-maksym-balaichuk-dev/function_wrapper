@@ -144,13 +144,12 @@ R invoke_l(void* ptr, Args... args)
     if constexpr (std::is_void_v<R>)
     {
         std::invoke(fn, std::forward<Args>(args)...);
+        return;
     }
     else
     {
         return std::invoke(fn, std::forward<Args>(args)...);
     }
-
-    FW_UNREACHABLE();
 }
 
 template <class Stored, class R, class... Args>
@@ -160,13 +159,12 @@ R invoke_cl(const void* ptr, Args... args)
     if constexpr (std::is_void_v<R>)
     {
         std::invoke(fn, std::forward<Args>(args)...);
+        return;
     }
     else
     {
         return std::invoke(fn, std::forward<Args>(args)...);
     }
-
-    FW_UNREACHABLE();
 }
 
 template <class Stored, class R, class... Args>
@@ -175,13 +173,12 @@ R invoke_r(void* ptr, Args... args)
     if constexpr (std::is_void_v<R>)
     {
         std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
+        return;
     }
     else
     {
         return std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
     }
-
-    FW_UNREACHABLE();
 }
 
 // ── vtable entry factory ───────────────────────────────────────────────────────
@@ -241,7 +238,7 @@ struct vtable_instance
             break;
         }
         default: {
-            FW_UNREACHABLE();
+            return;
         }
         }
 
@@ -269,7 +266,7 @@ struct vtable_instance
             break;
         }
         default: {
-            FW_UNREACHABLE();
+            return;
         }
         }
 
@@ -298,7 +295,7 @@ struct vtable_instance
             break;
         }
         default: {
-            FW_UNREACHABLE();
+            return;
         }
         }
 
