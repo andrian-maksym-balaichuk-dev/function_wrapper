@@ -16,22 +16,14 @@ namespace fw
 // ── function_wrapper ───────────────────────────────────────────────────────────
 // The class inherits one CRTP signature_interface base per signature.
 
-#if FW_HAS_CONCEPTS
-template <detail::FunctionSignature... Sigs>
-#else
 template <class... Sigs>
-#endif
 class function_wrapper : public detail::signature_interface<function_wrapper<Sigs...>, Sigs>...
 {
     static_assert(sizeof...(Sigs) > 0, "fw::function_wrapper requires at least one signature.");
-
-#if !FW_HAS_CONCEPTS
-    // Without concept constraints on the template parameter, verify here.
     static_assert(
         (detail::is_function_signature_v<Sigs> && ...),
         "All fw::function_wrapper template parameters must be plain "
         "function signatures of the form R(Args...).");
-#endif
 
 public:
     using self_type = function_wrapper;
