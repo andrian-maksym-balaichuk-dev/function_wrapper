@@ -10,6 +10,7 @@ namespace
 using SmallStorage = fw::detail::wrapper_storage<int(int, int)>;
 using SmallVTable = fw::detail::vtable_instance<int (*)(int, int), int(int, int)>;
 using HeapVTable = fw::detail::vtable_instance<fw::test_support::LargeAdder, int(int, int)>;
+using MoveOnlyVTable = fw::detail::vtable_instance<fw::test_support::MoveOnlyAdder, int(int, int)>;
 using VoidStorage = fw::detail::wrapper_storage<void()>;
 using VoidVTable = fw::detail::vtable_instance<fw::test_support::InvocationCounter, void()>;
 
@@ -26,10 +27,12 @@ TEST(VTable, GivenSupportedCallablesWhenEntriesAreBuiltThenExpectedSlotsExist)
 {
     auto* small_make = &fw::detail::signature_entry_factory<int (*)(int, int), int(int, int)>::make;
     auto* heap_make = &fw::detail::signature_entry_factory<fw::test_support::LargeAdder, int(int, int)>::make;
+    auto* move_only_make = &fw::detail::signature_entry_factory<fw::test_support::MoveOnlyAdder, int(int, int)>::make;
     auto* void_make = &fw::detail::signature_entry_factory<fw::test_support::InvocationCounter, void()>::make;
 
     const auto small_entry = small_make();
     const auto heap_entry = heap_make();
+    const auto move_only_entry = move_only_make();
     const auto void_entry = void_make();
 
     EXPECT_NE(small_entry.lcall, nullptr);
@@ -38,9 +41,36 @@ TEST(VTable, GivenSupportedCallablesWhenEntriesAreBuiltThenExpectedSlotsExist)
     EXPECT_NE(heap_entry.lcall, nullptr);
     EXPECT_NE(heap_entry.clcall, nullptr);
     EXPECT_NE(heap_entry.rcall, nullptr);
+    EXPECT_NE(move_only_entry.lcall, nullptr);
+    EXPECT_NE(move_only_entry.clcall, nullptr);
+    EXPECT_NE(move_only_entry.rcall, nullptr);
     EXPECT_NE(void_entry.lcall, nullptr);
     EXPECT_NE(void_entry.clcall, nullptr);
     EXPECT_NE(void_entry.rcall, nullptr);
+}
+
+TEST(VTable, GivenMoveOnlyStoredTypeWhenVTableIsBuiltThenCopyThunkIsNullAndMoveStillWorks)
+{
+    SmallStorage source{};
+    const auto* table = MoveOnlyVTable::get();
+    const auto& entry = static_cast<const fw::detail::signature_vtable_entry<int(int, int)>&>(*table);
+
+    EXPECT_EQ(table->copy, nullptr);
+
+    fw::detail::fw_construct<fw::test_support::MoveOnlyAdder>(source.payload.sbo, fw::test_support::MoveOnlyAdder{ 4 });
+    source.kind = fw::detail::storage_kind::Small;
+    source.vt = table;
+
+    SmallStorage moved{};
+    MoveOnlyVTable::move(moved, source);
+
+    EXPECT_FALSE(source.vt);
+    EXPECT_EQ(source.kind, fw::detail::storage_kind::Empty);
+    EXPECT_EQ(entry.lcall(MoveOnlyVTable::get_ptr(moved), 2, 3), 9);
+
+    MoveOnlyVTable::destroy(moved);
+    EXPECT_EQ(moved.kind, fw::detail::storage_kind::Empty);
+    EXPECT_EQ(moved.vt, nullptr);
 }
 
 TEST(VTable, GivenSmallStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsValid)

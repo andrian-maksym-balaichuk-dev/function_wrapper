@@ -83,6 +83,7 @@ The test suite is split into focused executables. Each can be run directly from 
 | `fw_concepts_tests` | Concept constraints and type trait correctness |
 | `fw_exceptions_tests` | Exception message stability and throw behavior |
 | `fw_function_wrapper_tests` | Core wrapper construction, copy/move, call dispatch |
+| `fw_move_only_function_wrapper_tests` | Move-only wrapper construction, ownership transfer, call dispatch |
 | `fw_signature_interface_tests` | Signature selection and dispatch ranking policy |
 | `fw_vtable_tests` | Vtable construction and lifecycle |
 
@@ -127,7 +128,7 @@ This keeps CTest and IDE test runner output readable without additional annotati
 3. Select the `debug` profile for normal development.
 4. Run individual test targets from the Run/Debug configurations panel.
 
-The split test targets keep the IDE run surface clear. Prefer running `fw_function_wrapper_tests` during active feature work and `fw_check` before committing.
+The split test targets keep the IDE run surface clear. Prefer running the most relevant focused target during active feature work and `fw_check` before committing.
 
 ---
 

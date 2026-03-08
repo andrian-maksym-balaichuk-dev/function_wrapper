@@ -7,8 +7,9 @@ This document covers the complete public API of `fw`.
 ## Headers
 
 ```cpp
-#include <fw/function_wrapper.hpp>  // function_wrapper<Sigs...>, make_function_array
-#include <fw/exceptions.hpp>        // bad_call, bad_signature_call
+#include <fw/function_wrapper.hpp>            // function_wrapper<Sigs...>, make_function_array
+#include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper<Sigs...>, make_move_only_function_array
+#include <fw/exceptions.hpp>                  // bad_call, bad_signature_call
 ```
 
 Do not include headers under `fw/detail/`. They are internal implementation details with no stability guarantee.
@@ -230,6 +231,56 @@ Returns a pointer to the stored callable if its type is exactly `T`, otherwise `
 
 ---
 
+## `fw::move_only_function_wrapper<Sigs...>`
+
+```cpp
+template <class... Sigs>
+class move_only_function_wrapper;
+```
+
+A type-erased callable wrapper with the same dispatch, SBO, null-state, and introspection model as `fw::function_wrapper`, but with move-only ownership semantics.
+
+`Sigs...` must be plain function signatures of the form `R(Args...)`. At least one signature is required.
+
+### Construction and assignment
+
+```cpp
+move_only_function_wrapper() noexcept;
+
+template <class F>
+move_only_function_wrapper(F&& f);
+
+move_only_function_wrapper(move_only_function_wrapper&& other) noexcept;
+move_only_function_wrapper& operator=(move_only_function_wrapper&& rhs) noexcept;
+```
+
+The callable constructor stores `std::decay_t<F>`. The stored callable must be move-constructible and callable through at least one declared signature.
+
+Copy construction and copy assignment are deleted.
+
+### Invocation, state, lifecycle, and introspection
+
+`move_only_function_wrapper` provides the same member surface as `function_wrapper` for:
+
+- `operator()` / `call(...)`
+- `has_value()` / `operator bool`
+- comparison with `nullptr`
+- `reset()` / `swap()`
+- `target_type()` / `target<T>()`
+
+Behavior is the same as `function_wrapper`, except ownership transfer is move-only.
+
+```cpp
+#include <memory>
+
+fw::move_only_function_wrapper<int(int)> w =
+    [state = std::make_unique<int>(5)](int x) { return x + *state; };
+
+int result = w(7); // 12
+```
+
+---
+
 ## `fw::make_function_array`
 
 ```cpp
@@ -250,6 +301,33 @@ auto arr = fw::make_function_array(
     [](int x) { return x + 1; }
 );
 // arr has type std::array<fw::function_wrapper<int(int)>, 2>
+```
+
+Requires at least one callable. Fails to compile if no callables are provided.
+
+---
+
+## `fw::make_move_only_function_array`
+
+```cpp
+template <class... Fs>
+auto make_move_only_function_array(Fs&&... fs);
+```
+
+Constructs a `std::array<move_only_function_wrapper<Sigs...>, N>` where:
+
+- `N` is `sizeof...(Fs)`.
+- `Sigs...` is the deduplicated union of the deduced signature of each `F` in `Fs...`.
+
+Each callable is forwarded into its destination wrapper, so move-only callables are supported.
+
+```cpp
+#include <memory>
+
+auto arr = fw::make_move_only_function_array(
+    [state = std::make_unique<int>(1)](int x) { return x + *state; },
+    [state = std::make_unique<double>(2.0)](double x) { return x * *state; }
+);
 ```
 
 Requires at least one callable. Fails to compile if no callables are provided.
@@ -314,14 +392,23 @@ When a call could match more than one declared signature, `fw` applies the follo
 ```cpp
 template <class F>
 function_wrapper(F) -> function_wrapper<detail::fn_sig_t<F>>;
+
+template <class F>
+move_only_function_wrapper(F) -> move_only_function_wrapper<detail::fn_sig_t<F>>;
 ```
 
-Allows `function_wrapper` to deduce its signature from a plain function pointer or a lambda with a single, non-overloaded `operator()`:
+Allows both wrapper types to deduce their signature from a plain function pointer or a lambda with a single, non-overloaded `operator()`:
 
 ```cpp
+#include <memory>
+
 int add(int a, int b) { return a + b; }
 fw::function_wrapper w = add;
 // deduces fw::function_wrapper<int(int, int)>
+
+fw::move_only_function_wrapper mw =
+    [state = std::make_unique<int>(3)](int x) { return x + *state; };
+// deduces fw::move_only_function_wrapper<int(int)>
 ```
 
 Note: generic lambdas with `auto` parameters cannot be deduced this way because their `operator()` is a template. Provide explicit signatures in that case.
@@ -332,4 +419,4 @@ Note: generic lambdas with `auto` parameters cannot be deduced this way because 
 
 Small callables are stored in an inline buffer without heap allocation. The buffer is sized to hold a function pointer plus pointer-sized captured state. Larger callables are heap-allocated transparently.
 
-The SBO size is controlled by `FW_SBO_SIZE`. The default ensures that `sizeof(function_wrapper<int(int, int)>) <= sizeof(void*) * 8`. A static assertion enforces this at build time.
+The SBO size is controlled by `FW_SBO_SIZE`. The default ensures that both `function_wrapper<int(int, int)>` and `move_only_function_wrapper<int(int, int)>` stay within `sizeof(void*) * 8`. Static assertions enforce this at build time.

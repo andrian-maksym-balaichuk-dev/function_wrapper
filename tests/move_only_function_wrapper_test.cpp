@@ -1,0 +1,125 @@
+#include <gtest/gtest.h>
+
+#include <fw/exceptions.hpp>
+#include <fw/move_only_function_wrapper.hpp>
+
+#include <memory>
+#include <type_traits>
+#include <utility>
+
+#include "test_types.hpp"
+
+namespace
+{
+
+using BinaryMoveOnlyWrapper = fw::move_only_function_wrapper<int(int, int)>;
+using MixedMoveOnlyWrapper = fw::move_only_function_wrapper<int(int, int), double(double, double)>;
+
+static_assert(std::is_move_constructible_v<BinaryMoveOnlyWrapper>);
+static_assert(std::is_move_assignable_v<BinaryMoveOnlyWrapper>);
+static_assert(!std::is_copy_constructible_v<BinaryMoveOnlyWrapper>);
+static_assert(!std::is_copy_assignable_v<BinaryMoveOnlyWrapper>);
+static_assert(!std::is_constructible_v<BinaryMoveOnlyWrapper, fw::test_support::MoveOnlyAdder&>);
+
+} // namespace
+
+TEST(MoveOnlyFunctionWrapper, GivenEmptyWrapperWhenObservedThenStateQueriesStayConsistent)
+{
+    BinaryMoveOnlyWrapper wrapper;
+
+    EXPECT_FALSE(wrapper.has_value());
+    EXPECT_FALSE(static_cast<bool>(wrapper));
+    EXPECT_EQ(wrapper.target_type(), typeid(void));
+    EXPECT_EQ(wrapper.target<fw::test_support::MoveOnlyAdder>(), nullptr);
+    EXPECT_TRUE(wrapper == nullptr);
+    EXPECT_TRUE(nullptr == wrapper);
+    EXPECT_FALSE(wrapper != nullptr);
+    EXPECT_FALSE(nullptr != wrapper);
+    EXPECT_THROW(static_cast<void>(wrapper(1, 2)), fw::bad_call);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenMoveOnlyCallableWhenStoredThenTargetsAndTypesArePreserved)
+{
+    BinaryMoveOnlyWrapper wrapper = fw::test_support::MoveOnlyAdder{ 3 };
+
+    ASSERT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(2, 4), 9);
+    EXPECT_NE(wrapper.target<fw::test_support::MoveOnlyAdder>(), nullptr);
+    EXPECT_EQ(wrapper.target_type(), typeid(fw::test_support::MoveOnlyAdder));
+
+    const auto& const_wrapper = wrapper;
+    EXPECT_EQ(const_wrapper(1, 5), 9);
+    EXPECT_NE(const_wrapper.target<fw::test_support::MoveOnlyAdder>(), nullptr);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenLargeMoveOnlyCallableWhenMovedThenHeapStorageRemainsValid)
+{
+    BinaryMoveOnlyWrapper wrapper = fw::test_support::LargeMoveOnlyAdder{ 5 };
+    ASSERT_NE(wrapper.target<fw::test_support::LargeMoveOnlyAdder>(), nullptr);
+    EXPECT_EQ(wrapper(3, 4), 12);
+
+    BinaryMoveOnlyWrapper moved = std::move(wrapper);
+    EXPECT_FALSE(wrapper.has_value());
+    ASSERT_NE(moved.target<fw::test_support::LargeMoveOnlyAdder>(), nullptr);
+    EXPECT_EQ(moved(6, 7), 18);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenConsumeOnceCallableWhenInvokedThenOnlyRvalueDispatchSucceeds)
+{
+    fw::move_only_function_wrapper<int()> wrapper = fw::test_support::MoveOnlyConsumeOnce{ 11 };
+    const auto& const_wrapper = wrapper;
+
+    EXPECT_THROW(static_cast<void>(wrapper()), fw::bad_signature_call);
+    EXPECT_THROW(static_cast<void>(const_wrapper()), fw::bad_signature_call);
+    EXPECT_EQ(std::move(wrapper)(), 11);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenAssignmentsSwapAndResetWhenOwnershipMovesThenStateRemainsValid)
+{
+    BinaryMoveOnlyWrapper first = fw::test_support::MoveOnlyAdder{ 1 };
+    BinaryMoveOnlyWrapper second = fw::test_support::MoveOnlyAdder{ 10 };
+
+    swap(first, second);
+    EXPECT_EQ(first(1, 2), 13);
+    EXPECT_EQ(second(1, 2), 4);
+
+    BinaryMoveOnlyWrapper empty;
+    second.swap(empty);
+    EXPECT_FALSE(second.has_value());
+    EXPECT_EQ(empty(2, 3), 6);
+
+    first = fw::test_support::LargeMoveOnlyAdder{ 4 };
+    ASSERT_NE(first.target<fw::test_support::LargeMoveOnlyAdder>(), nullptr);
+    first = std::move(first);
+    EXPECT_EQ(first(2, 5), 11);
+
+    second = std::move(first);
+    EXPECT_FALSE(first.has_value());
+    EXPECT_EQ(second(4, 5), 13);
+
+    second.reset();
+    EXPECT_FALSE(second.has_value());
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenMixedMoveOnlyCallableWhenInvokedThenSignatureSelectionMatchesFunctionWrapper)
+{
+    MixedMoveOnlyWrapper wrapper = fw::test_support::MoveOnlyNumericTransform{ 2 };
+
+    static_assert(std::is_same_v<decltype(wrapper(1, 2)), int>);
+    EXPECT_EQ(wrapper(1, 2), 5);
+    EXPECT_DOUBLE_EQ(wrapper(1.5, 2.0), 5.0);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenMoveOnlyFunctionArrayWhenBuiltThenElementsOwnDistinctCallables)
+{
+    auto wrappers = fw::make_move_only_function_array(
+        [bias = std::make_unique<int>(3)](int value) { return value + *bias; },
+        [scale = std::make_unique<double>(2.0)](double value) { return value * *scale; });
+
+    static_assert(std::is_same_v<decltype(wrappers), std::array<fw::move_only_function_wrapper<int(int), double(double)>, 2>>);
+
+    EXPECT_EQ(wrappers[0](4), 7);
+    EXPECT_DOUBLE_EQ(wrappers[1](1.5), 3.0);
+    EXPECT_THROW(static_cast<void>(wrappers[0](1.5)), fw::bad_signature_call);
+    EXPECT_THROW(static_cast<void>(wrappers[1](4)), fw::bad_signature_call);
+}

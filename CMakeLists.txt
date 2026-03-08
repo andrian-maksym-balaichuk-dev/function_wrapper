@@ -100,12 +100,14 @@ if(FW_BUILD_TESTS AND BUILD_TESTING)
         concepts_test.cpp
         exceptions_test.cpp
         function_wrapper_test.cpp
+        move_only_function_wrapper_test.cpp
         signature_interface_test.cpp
         vtable_test.cpp
     )
     set(FW_TEST_TARGETS)
     set(FW_COVERAGE_HEADERS
         ${FW_INCLUDE_DIR}/fw/function_wrapper.hpp
+        ${FW_INCLUDE_DIR}/fw/move_only_function_wrapper.hpp
         ${FW_INCLUDE_DIR}/fw/exceptions.hpp
         ${FW_INCLUDE_DIR}/fw/detail/concepts.hpp
         ${FW_INCLUDE_DIR}/fw/detail/signature_interface.hpp
@@ -168,6 +170,7 @@ if(FW_BUILD_TESTS AND BUILD_TESTING)
     fw_add_test_executable(fw_concepts_tests concepts_test.cpp)
     fw_add_test_executable(fw_exceptions_tests exceptions_test.cpp)
     fw_add_test_executable(fw_function_wrapper_tests function_wrapper_test.cpp)
+    fw_add_test_executable(fw_move_only_function_wrapper_tests move_only_function_wrapper_test.cpp)
     fw_add_test_executable(fw_signature_interface_tests signature_interface_test.cpp)
     fw_add_test_executable(fw_vtable_tests vtable_test.cpp)
 

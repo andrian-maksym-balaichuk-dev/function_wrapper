@@ -2,7 +2,7 @@
 
 **A header-only C++ library for type-erased callables with multiple declared signatures.**
 
-`fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. It is a drop-in upgrade for `std::function` in contexts where one signature is not enough.
+`fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. `fw::move_only_function_wrapper` provides the same dispatch model for move-only callables and ownership patterns.
 
 ---
 
@@ -33,11 +33,12 @@ float r2 = add(1.f, 2.f); // dispatches to float(float, float)
 
 ## Why Use function_wrapper
 
-| Need | `std::function` | `fw::function_wrapper` |
+| Need | `std::function` | `fw` |
 |---|---|---|
 | Single call signature | yes | yes |
 | Multiple call signatures | no | yes |
-| Value semantics (copy/move) | yes | yes |
+| Copyable ownership | yes | `fw::function_wrapper` |
+| Move-only ownership | no | `fw::move_only_function_wrapper` |
 | Small-buffer optimization | implementation-defined | yes, tunable |
 | Deterministic multi-sig dispatch | n/a | yes |
 | Explicit conversion boundary | n/a | yes |
@@ -52,6 +53,7 @@ float r2 = add(1.f, 2.f); // dispatches to float(float, float)
 - Numeric APIs that expose both integral and floating-point signatures from one handler.
 - String APIs that accept `std::string`, `std::string_view`, and C-string literals through declared overloads.
 - Callback registries that need a stable, copyable callable abstraction with controlled conversion behavior.
+- Async or resource-owning callbacks that capture `std::unique_ptr`, sockets, file handles, or coroutine state.
 - Framework code where implicit conversion policy must be explicit and library-owned, not left to the caller.
 
 ---
@@ -101,7 +103,7 @@ target_link_libraries(example PRIVATE fw::wrapper)
 - **Multi-signature dispatch** — declare as many `R(Args...)` signatures as needed; the correct one is selected at compile time.
 - **Deterministic ranking policy** — exact match wins; then reference/cv binding; then arithmetic promotions and conversions; then string-like conversions; then class hierarchy; then single-step user-defined implicit conversions. Explicit conversions are never used automatically.
 - **Small-buffer optimization** — small callables (lambdas, function pointers, small functors) are stored inline with no heap allocation.
-- **Value semantics** — copy, move, assign, swap, and reset all work as expected.
+- **Two ownership models** — `function_wrapper` is copyable; `move_only_function_wrapper` supports move-only callables.
 - **Null / empty state** — default-constructed wrapper is empty. `has_value()`, `operator bool`, and comparison with `nullptr` are all provided.
 - **Target introspection** — `target_type()` and `target<T>()` mirror `std::function`.
 - **Exception types** — `fw::bad_call` (empty wrapper called) and `fw::bad_signature_call` (no matching signature) are public and catchable.
@@ -160,8 +162,9 @@ See [Integration Guide](docs/integration.md) for full details on each mode.
 ### Primary headers
 
 ```cpp
-#include <fw/function_wrapper.hpp>  // function_wrapper, make_function_array
-#include <fw/exceptions.hpp>        // bad_call, bad_signature_call
+#include <fw/function_wrapper.hpp>            // function_wrapper, make_function_array
+#include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper, make_move_only_function_array
+#include <fw/exceptions.hpp>                  // bad_call, bad_signature_call
 ```
 
 ### `fw::function_wrapper<Sigs...>`
@@ -184,6 +187,17 @@ const std::type_info& ti = w.target_type();
 int (*fn)(int) = *w.target<int(*)(int)>();
 ```
 
+### `fw::move_only_function_wrapper<Sigs...>`
+
+```cpp
+#include <memory>
+
+fw::move_only_function_wrapper<int(int)> w =
+    [state = std::make_unique<int>(4)](int x) { return x + *state; };
+
+int result = w(8);
+```
+
 ### `fw::make_function_array`
 
 Builds a `std::array` of `function_wrapper` objects with a unified signature set deduced from all provided callables:
@@ -194,6 +208,10 @@ auto handlers = fw::make_function_array(
     [](int x)   { return x + 10; }
 );
 ```
+
+### `fw::make_move_only_function_array`
+
+Builds a `std::array` of `move_only_function_wrapper` objects with the same deduplicated-signature behavior, but accepts move-only callables.
 
 ### Exception types
 
@@ -280,6 +298,7 @@ See [Development Guide](docs/development.md) for the full local workflow, IDE se
 ├── include/
 │   └── fw/
 │       ├── function_wrapper.hpp   # primary public header
+│       ├── move_only_function_wrapper.hpp
 │       ├── exceptions.hpp         # public exception types
 │       └── detail/                # internal implementation headers
 ├── tests/                  # GoogleTest-based test suite

@@ -248,6 +248,8 @@ struct vtable_instance
 
     static void copy(storage_type& dst, const storage_type& src)
     {
+        static_assert(std::is_copy_constructible_v<Stored>, "fw::detail::vtable_instance::copy requires a copy-constructible stored type.");
+
         switch (src.kind)
         {
         case storage_kind::Small: {
@@ -271,6 +273,18 @@ struct vtable_instance
         }
 
         dst.vt = src.vt;
+    }
+
+    [[nodiscard]] static constexpr typename vtable_type::copy_t copy_fn() noexcept
+    {
+        if constexpr (std::is_copy_constructible_v<Stored>)
+        {
+            return &copy;
+        }
+        else
+        {
+            return nullptr;
+        }
     }
 
     static void move(storage_type& dst, storage_type& src) noexcept
@@ -329,7 +343,7 @@ struct vtable_instance
         static const vtable_type table{ signature_entry_factory<Stored, Sigs>::make()...,
                                         &typeid(Stored),
                                         &destroy,
-                                        &copy,
+                                        copy_fn(),
                                         &move,
                                         &get_ptr,
                                         &get_cptr };

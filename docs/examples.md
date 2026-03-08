@@ -1,6 +1,6 @@
 # Examples
 
-This document shows representative uses of `fw::function_wrapper`, ordered from the simplest to the most advanced.
+This document shows representative uses of `fw::function_wrapper` and `fw::move_only_function_wrapper`, ordered from the simplest to the most advanced.
 
 ---
 
@@ -574,5 +574,83 @@ int main()
 
     // (3*2+1)^2 = 49, sqrt(49) = 7
     return static_cast<int>(std::round(value)); // 7
+}
+```
+
+---
+
+### Move-Only Lambda Capture
+
+Use `fw::move_only_function_wrapper` when the callable owns non-copyable state such as a `std::unique_ptr`.
+
+```cpp
+#include <fw/move_only_function_wrapper.hpp>
+#include <memory>
+
+int main()
+{
+    fw::move_only_function_wrapper<int(int)> add_bias =
+        [bias = std::make_unique<int>(5)](int x) { return x + *bias; };
+
+    return add_bias(7); // 12
+}
+```
+
+---
+
+### Consume-Once Callable With `&&`
+
+Value-category-sensitive dispatch works the same way for the move-only wrapper.
+
+```cpp
+#include <fw/move_only_function_wrapper.hpp>
+#include <memory>
+
+struct ConsumeOnce {
+    std::unique_ptr<int> value{ std::make_unique<int>(9) };
+
+    int operator()() && { return *value; }
+};
+
+int main()
+{
+    fw::move_only_function_wrapper<int()> task = ConsumeOnce{};
+    return std::move(task)(); // 9
+}
+```
+
+---
+
+### Multi-Signature Move-Only Callable
+
+Move-only state and multi-signature dispatch compose cleanly.
+
+```cpp
+#include <fw/move_only_function_wrapper.hpp>
+#include <memory>
+
+struct NumericTransform {
+    std::unique_ptr<int> bias{ std::make_unique<int>(2) };
+
+    int operator()(int left, int right) const
+    {
+        return left + right + *bias;
+    }
+
+    double operator()(double left, double right) const
+    {
+        return left * right + static_cast<double>(*bias);
+    }
+};
+
+int main()
+{
+    fw::move_only_function_wrapper<int(int, int), double(double, double)> transform =
+        NumericTransform{};
+
+    const int whole = transform(1, 2);          // 5
+    const double fractional = transform(1.5, 2.0); // 5.0
+
+    return whole + static_cast<int>(fractional);
 }
 ```

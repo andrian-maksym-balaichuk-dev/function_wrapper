@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -145,6 +146,76 @@ struct InvocationCounter
     void operator()() const
     {
         ++*value;
+    }
+};
+
+struct MoveOnlyAdder
+{
+    std::unique_ptr<int> bias;
+
+    explicit MoveOnlyAdder(int value) : bias(std::make_unique<int>(value)) {}
+    MoveOnlyAdder(MoveOnlyAdder&&) noexcept = default;
+    MoveOnlyAdder& operator=(MoveOnlyAdder&&) noexcept = default;
+    MoveOnlyAdder(const MoveOnlyAdder&) = delete;
+    MoveOnlyAdder& operator=(const MoveOnlyAdder&) = delete;
+
+    int operator()(int left, int right) const
+    {
+        return left + right + *bias;
+    }
+};
+
+struct LargeMoveOnlyAdder
+{
+    std::array<int, 64> padding{};
+    std::unique_ptr<int> bias;
+
+    explicit LargeMoveOnlyAdder(int value) : bias(std::make_unique<int>(value)) {}
+    LargeMoveOnlyAdder(LargeMoveOnlyAdder&&) noexcept = default;
+    LargeMoveOnlyAdder& operator=(LargeMoveOnlyAdder&&) noexcept = default;
+    LargeMoveOnlyAdder(const LargeMoveOnlyAdder&) = delete;
+    LargeMoveOnlyAdder& operator=(const LargeMoveOnlyAdder&) = delete;
+
+    int operator()(int left, int right) const
+    {
+        return left + right + padding[0] + *bias;
+    }
+};
+
+struct MoveOnlyConsumeOnce
+{
+    std::unique_ptr<int> value;
+
+    explicit MoveOnlyConsumeOnce(int initial = 7) : value(std::make_unique<int>(initial)) {}
+    MoveOnlyConsumeOnce(MoveOnlyConsumeOnce&&) noexcept = default;
+    MoveOnlyConsumeOnce& operator=(MoveOnlyConsumeOnce&&) noexcept = default;
+    MoveOnlyConsumeOnce(const MoveOnlyConsumeOnce&) = delete;
+    MoveOnlyConsumeOnce& operator=(const MoveOnlyConsumeOnce&) = delete;
+
+    int operator()() &&
+    {
+        return *value;
+    }
+};
+
+struct MoveOnlyNumericTransform
+{
+    std::unique_ptr<int> bias;
+
+    explicit MoveOnlyNumericTransform(int value) : bias(std::make_unique<int>(value)) {}
+    MoveOnlyNumericTransform(MoveOnlyNumericTransform&&) noexcept = default;
+    MoveOnlyNumericTransform& operator=(MoveOnlyNumericTransform&&) noexcept = default;
+    MoveOnlyNumericTransform(const MoveOnlyNumericTransform&) = delete;
+    MoveOnlyNumericTransform& operator=(const MoveOnlyNumericTransform&) = delete;
+
+    int operator()(int left, int right) const
+    {
+        return left + right + *bias;
+    }
+
+    double operator()(double left, double right) const
+    {
+        return left * right + static_cast<double>(*bias);
     }
 };
 
