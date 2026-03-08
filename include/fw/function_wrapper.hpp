@@ -316,6 +316,18 @@ private:
     storage_type storage_{};
 };
 
+template <class... Sigs>
+function_wrapper<Sigs...> static_function<Sigs...>::to_function_wrapper() const&
+{
+    return function_wrapper<Sigs...>(*this);
+}
+
+template <class... Sigs>
+function_wrapper<Sigs...> static_function<Sigs...>::to_function_wrapper() &&
+{
+    return function_wrapper<Sigs...>(std::move(*this));
+}
+
 // ── Deduction guide ────────────────────────────────────────────────────────────
 // function_wrapper f = my_free_fn;  →  deduces function_wrapper<R(Args...)>
 

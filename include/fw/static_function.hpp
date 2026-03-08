@@ -9,6 +9,9 @@
 
 namespace fw
 {
+template <class... Sigs>
+class function_wrapper;
+
 // ── static_function ───────────────────────────────────────────────────────────
 // The class stores one raw function pointer per declared signature and resolves
 // calls through the same compile-time best-signature selection used elsewhere.
@@ -118,6 +121,20 @@ public:
     constexpr decltype(auto) operator()(CallArgs&&... args) &&
     {
         return std::move(*this).call(std::forward<CallArgs>(args)...);
+    }
+
+    [[nodiscard]] function_wrapper<Sigs...> to_function_wrapper() const&;
+
+    [[nodiscard]] function_wrapper<Sigs...> to_function_wrapper() &&;
+
+    explicit operator function_wrapper<Sigs...>() const&
+    {
+        return to_function_wrapper();
+    }
+
+    explicit operator function_wrapper<Sigs...>() &&
+    {
+        return std::move(*this).to_function_wrapper();
     }
 
 private:

@@ -250,3 +250,28 @@ TEST(FunctionWrapper, GivenStaticFunctionRefWhenInvokedThenPointerStyleConstexpr
     EXPECT_TRUE(wrapper.has_value());
     EXPECT_EQ(wrapper(4, 8), 12);
 }
+
+TEST(FunctionWrapper, GivenStaticFunctionWhenConvertedThenFunctionWrapperPreservesDispatch)
+{
+    constexpr auto static_wrapper = [] {
+        fw::static_function<int(int, int), double(double, double)> result;
+        result.bind<int(int, int)>(fw::test_support::add);
+        result.bind<double(double, double)>(fw::test_support::multiply);
+        return result;
+    }();
+
+    const auto wrapper = static_wrapper.to_function_wrapper();
+    ASSERT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(2, 5), 7);
+    EXPECT_DOUBLE_EQ(wrapper(1.5, 4.0), 6.0);
+}
+
+TEST(FunctionWrapper, GivenStaticFunctionWhenExplicitlyConvertedThenFunctionWrapperCanStoreIt)
+{
+    fw::static_function<int(int, int)> static_wrapper;
+    static_wrapper.bind<int(int, int)>(fw::test_support::add);
+
+    auto wrapper = static_cast<fw::function_wrapper<int(int, int)>>(std::move(static_wrapper));
+    ASSERT_TRUE(wrapper.has_value());
+    EXPECT_EQ(wrapper(9, 3), 12);
+}
