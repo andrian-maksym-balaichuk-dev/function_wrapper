@@ -13,7 +13,6 @@
 
 namespace fw::test_support
 {
-
 constexpr int add(int left, int right)
 {
     return left + right;

@@ -11,7 +11,6 @@
 
 namespace
 {
-
 using BinaryMoveOnlyWrapper = fw::move_only_function_wrapper<int(int, int)>;
 using MixedMoveOnlyWrapper = fw::move_only_function_wrapper<int(int, int), double(double, double)>;
 
@@ -20,6 +19,7 @@ static_assert(std::is_move_assignable_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_copy_constructible_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_copy_assignable_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_constructible_v<BinaryMoveOnlyWrapper, fw::test_support::MoveOnlyAdder&>);
+static_assert((std::is_same_v<typename fw::move_only_function_wrapper<int(int, int)>::policy_type, fw::policy::default_policy>));
 static_assert((fw::detail::supports_signature<fw::test_support::NothrowIncrement, int(int) noexcept>::value));
 
 } // namespace
@@ -117,7 +117,11 @@ TEST(MoveOnlyFunctionWrapper, GivenMoveOnlyFunctionArrayWhenBuiltThenElementsOwn
         [bias = std::make_unique<int>(3)](int value) { return value + *bias; },
         [scale = std::make_unique<double>(2.0)](double value) { return value * *scale; });
 
-    static_assert(std::is_same_v<decltype(wrappers), std::array<fw::move_only_function_wrapper<int(int), double(double)>, 2>>);
+    using wrapper_array_type = decltype(wrappers);
+    using wrapper_element_type = typename wrapper_array_type::value_type;
+
+    static_assert(std::tuple_size_v<wrapper_array_type> == 2);
+    static_assert(std::is_same_v<typename wrapper_element_type::policy_type, fw::policy::default_policy>);
 
     EXPECT_EQ(wrappers[0](4), 7);
     EXPECT_DOUBLE_EQ(wrappers[1](1.5), 3.0);

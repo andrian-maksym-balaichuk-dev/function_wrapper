@@ -2,7 +2,7 @@
 
 **A header-only C++ library for type-erased callables with multiple declared signatures.**
 
-`fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. `fw::move_only_function_wrapper` provides the same dispatch model for move-only callables, and `fw::function_ref` adds a zero-allocation non-owning callable view.
+`fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. Owning wrappers use `fw::policy::default_policy` when no policy is specified, and still accept an explicit leading policy such as `fw::policy::sbo<48>` when you want custom SBO sizing. `fw::move_only_function_wrapper` provides the same dispatch model for move-only callables, and `fw::function_ref` adds a zero-allocation non-owning callable view.
 
 ---
 
@@ -68,7 +68,7 @@ float r2 = add(1.f, 2.f); // dispatches to float(float, float)
 
 int main()
 {
-    // Multi-signature numeric wrapper
+        // Multi-signature numeric wrapper
     fw::function_wrapper<int(int, int), float(float, float)> add =
         [](auto a, auto b) { return a + b; };
 
@@ -107,6 +107,7 @@ target_link_libraries(example PRIVATE fw::wrapper)
 - **Strict `noexcept` binding** — a `noexcept` signature only accepts nothrow-invocable targets, and `R(Args...)` / `R(Args...) noexcept` may not coexist for the same argument list.
 - **Small-buffer optimization** — small callables (lambdas, function pointers, small functors) are stored inline with no heap allocation.
 - **Three callable roles** — `function_wrapper` is copyable, `move_only_function_wrapper` stores move-only callables, and `function_ref` is a non-owning view.
+- **Per-wrapper SBO policy** — omit the policy to use `fw::policy::default_policy`, or pass one explicitly such as `fw::policy::sbo<48>`.
 - **Null / empty state** — default-constructed wrapper is empty. `has_value()`, `operator bool`, and comparison with `nullptr` are all provided.
 - **Target introspection** — `target_type()` and `target<T>()` mirror `std::function`.
 - **Exception types** — `fw::bad_call` (empty wrapper called) and `fw::bad_signature_call` (no matching signature) are public and catchable.
@@ -182,7 +183,7 @@ int result = ref(42);
 
 `fw::function_ref<R(Args...) noexcept>` is also supported for nothrow-callable lvalues and member adapters.
 
-### `fw::function_wrapper<Sigs...>`
+### `fw::function_wrapper<Sigs...>` or `fw::function_wrapper<Policy, Sigs...>`
 
 ```cpp
 // Construction
@@ -204,7 +205,7 @@ int (*fn)(int) = *w.target<int(*)(int)>();
 
 Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. For the same base signature, you must choose one or the other.
 
-### `fw::move_only_function_wrapper<Sigs...>`
+### `fw::move_only_function_wrapper<Sigs...>` or `fw::move_only_function_wrapper<Policy, Sigs...>`
 
 ```cpp
 #include <memory>

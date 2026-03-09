@@ -56,7 +56,7 @@ struct signature_vtable_entry<R(Args...) noexcept>
 // The wrapper_vtable struct is defined after wrapper_storage since it needs to refer to it for the lifecycle function
 // pointers, but wrapper_storage needs to refer to wrapper_vtable for its vtable pointer.
 
-template <class... Sigs>
+template <class Policy, class... Sigs>
 struct wrapper_vtable;
 
 template <class T, class... Args>
@@ -67,17 +67,17 @@ T* fw_construct(void* where, Args&&... args);
 // The wrapper_storage struct contains the actual storage for the wrapped object, either in an internal buffer (SBO) or
 // on the heap, as well as a pointer to the appropriate vtable for the currently stored type. The wrapper's lifecycle
 
-template <class... Sigs>
+template <class Policy, class... Sigs>
 struct wrapper_storage
 {
     union payload_t
     {
-        alignas(std::max_align_t) unsigned char sbo[FW_SBO_SIZE];
+        alignas(std::max_align_t) unsigned char sbo[sbo_storage_size_v<Policy>];
         void* heap;
         constexpr payload_t() noexcept : heap(nullptr) {}
     };
 
-    using vtable_type = wrapper_vtable<Sigs...>;
+    using vtable_type = wrapper_vtable<Policy, Sigs...>;
 
     storage_kind kind{ storage_kind::Empty };
     const vtable_type* vt{ nullptr };
@@ -88,10 +88,10 @@ struct wrapper_storage
 // ── vtable (lifecycle + per-signature call slots) ──────────────────────────────
 // The wrapper_vtable struct contains the function pointers for all supported signatures as well as the lifecycle functions (destroy, copy, move) and pointer accessors (get_ptr, get_cptr).
 
-template <class... Sigs>
+template <class Policy, class... Sigs>
 struct wrapper_vtable : signature_vtable_entry<Sigs>...
 {
-    using storage_type = wrapper_storage<Sigs...>;
+    using storage_type = wrapper_storage<Policy, Sigs...>;
 
     using destroy_t = void (*)(storage_type&) noexcept;
     using copy_t = void (*)(storage_type&, const storage_type&);
@@ -150,6 +150,13 @@ struct supports_signature<Stored, R(Args...) noexcept>
 
 template <class Stored, class... Sigs>
 inline constexpr bool supports_any_signature_v = (supports_signature<Stored, Sigs>::value || ...);
+
+template <class Stored, class TL>
+struct supports_any_signature_in_list;
+
+template <class Stored, class... Sigs>
+struct supports_any_signature_in_list<Stored, typelist<Sigs...>> : std::bool_constant<supports_any_signature_v<Stored, Sigs...>>
+{};
 
 // ── invoke thunks (void* → typed call) ────────────────────────────────────────
 // These functions are used as the call slots in the vtable. They take a void* pointer to the stored object and the call arguments,
@@ -301,11 +308,11 @@ struct signature_entry_factory<Stored, R(Args...) noexcept>
 // The vtable_instance struct provides the actual function implementations for the lifecycle and call slots in the vtable for a
 // given stored type. It is instantiated once per stored type and signature set, and its get() function returns a pointer to the corresponding vtable.
 
-template <class Stored, class... Sigs>
+template <class Stored, class Policy, class... Sigs>
 struct vtable_instance
 {
-    using storage_type = wrapper_storage<Sigs...>;
-    using vtable_type = wrapper_vtable<Sigs...>;
+    using storage_type = wrapper_storage<Policy, Sigs...>;
+    using vtable_type = wrapper_vtable<Policy, Sigs...>;
 
     static void destroy(storage_type& s) noexcept
     {
@@ -435,6 +442,15 @@ struct vtable_instance
                                         &get_cptr };
         return &table;
     }
+};
+
+template <class Stored, class Policy, class TL>
+struct vtable_instance_from_list;
+
+template <class Stored, class Policy, class... Sigs>
+struct vtable_instance_from_list<Stored, Policy, typelist<Sigs...>>
+{
+    using type = vtable_instance<Stored, Policy, Sigs...>;
 };
 
 // ── SBO construct helper ───────────────────────────────────────────────────────

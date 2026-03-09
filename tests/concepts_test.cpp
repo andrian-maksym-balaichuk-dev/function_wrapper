@@ -10,7 +10,6 @@
 
 namespace
 {
-
 struct ExplicitOnly
 {
     explicit operator int() const
@@ -42,8 +41,8 @@ TEST(Concepts, GivenCallableTraitsWhenQueriedThenTheyReportSupportedShapes)
     EXPECT_TRUE((fw::detail::is_exact_invocable_r_v<decltype(&fw::test_support::add), int, int, int>));
     EXPECT_TRUE((fw::detail::is_exact_nothrow_invocable_r_v<decltype(&fw::test_support::add_noexcept), int, int, int>));
     EXPECT_FALSE((fw::detail::is_exact_nothrow_invocable_r_v<decltype(&fw::test_support::add), int, int, int>));
-    EXPECT_TRUE((fw::detail::fits_in_sbo_v<int (*)(int, int)>));
-    EXPECT_FALSE((fw::detail::fits_in_sbo_v<fw::test_support::LargeAdder>));
+    EXPECT_TRUE((fw::detail::fits_in_sbo_v<fw::policy::default_policy, int (*)(int, int)>));
+    EXPECT_FALSE((fw::detail::fits_in_sbo_v<fw::policy::default_policy, fw::test_support::LargeAdder>));
     EXPECT_TRUE((std::is_same_v<fw::detail::fn_sig_t<decltype(&fw::test_support::add)>, int(int, int)>));
     EXPECT_TRUE((std::is_same_v<fw::detail::fn_sig_t<decltype(&fw::test_support::add_noexcept)>, int(int, int) noexcept>));
     EXPECT_TRUE((std::is_same_v<fw::detail::base_signature_t<int(int) noexcept>, int(int)>));

@@ -15,22 +15,26 @@ namespace fw
 // ── function_wrapper ───────────────────────────────────────────────────────────
 // The class inherits one CRTP signature_interface base per signature.
 
-template <class... Sigs>
-class function_wrapper : public detail::signature_interface<function_wrapper<Sigs...>, Sigs>...
+template <class... Args>
+class function_wrapper : public detail::signature_interface_pack<function_wrapper<Args...>, typename detail::wrapper_template_arguments<Args...>::signatures>
 {
-    static_assert(sizeof...(Sigs) > 0, "fw::function_wrapper requires at least one signature.");
+    using argument_traits = detail::wrapper_template_arguments<Args...>;
+
+    static_assert(detail::tl_size_v<typename argument_traits::signatures> > 0, "fw::function_wrapper requires at least one signature.");
     static_assert(
-        (detail::is_function_signature_v<Sigs> && ...),
+        detail::tl_all_function_signatures_v<typename argument_traits::signatures>,
         "All fw::function_wrapper template parameters must be function "
         "signatures of the form R(Args...) or R(Args...) noexcept.");
     static_assert(
-        !detail::has_conflicting_signatures_v<Sigs...>,
+        !detail::tl_has_conflicting_signatures_v<typename argument_traits::signatures>,
         "fw::function_wrapper does not allow both R(Args...) and R(Args...) noexcept for the same argument list.");
 
 public:
     using self_type = function_wrapper;
-    using storage_type = detail::wrapper_storage<Sigs...>;
-    using vtable_type = detail::wrapper_vtable<Sigs...>;
+    using policy_type = typename argument_traits::policy;
+    using signatures_type = typename argument_traits::signatures;
+    using storage_type = typename argument_traits::template apply<detail::wrapper_storage>;
+    using vtable_type = typename argument_traits::template apply<detail::wrapper_vtable>;
 
     function_wrapper() noexcept = default;
 
@@ -261,7 +265,7 @@ private:
     template <class Self, class... CallArgs>
     static decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
     {
-        using best_match = detail::best_signature_t<detail::typelist<Sigs...>, CallArgs...>;
+        using best_match = detail::best_signature_t<signatures_type, CallArgs...>;
 
         if constexpr (!best_match::found)
         {
@@ -301,9 +305,11 @@ private:
         using stored_type = std::decay_t<F>;
 
         static_assert(std::is_copy_constructible_v<stored_type>, "fw::function_wrapper requires a copy-constructible callable.");
-        static_assert(detail::supports_any_signature_v<stored_type, Sigs...>, "fw::function_wrapper: callable does not match any declared signature.");
+        static_assert(
+            detail::supports_any_signature_in_list<stored_type, signatures_type>::value,
+            "fw::function_wrapper: callable does not match any declared signature.");
 
-        if constexpr (detail::fits_in_sbo_v<stored_type>)
+        if constexpr (detail::fits_in_sbo_v<policy_type, stored_type>)
         {
             detail::fw_construct<stored_type>(storage_.payload.sbo, std::forward<F>(f));
             storage_.kind = detail::storage_kind::Small;
@@ -313,7 +319,8 @@ private:
             storage_.payload.heap = new stored_type(std::forward<F>(f));
             storage_.kind = detail::storage_kind::Heap;
         }
-        storage_.vt = detail::vtable_instance<stored_type, Sigs...>::get();
+        using resolved_vtable = typename detail::vtable_instance_from_list<stored_type, policy_type, signatures_type>::type;
+        storage_.vt = resolved_vtable::get();
     }
 
     storage_type storage_{};
@@ -326,36 +333,52 @@ function_wrapper<Sigs...> static_function<Sigs...>::to_function_wrapper() const&
 }
 
 template <class... Sigs>
+template <class Policy>
+function_wrapper<Policy, Sigs...> static_function<Sigs...>::to_function_wrapper() const&
+{
+    return function_wrapper<Policy, Sigs...>(*this);
+}
+
+template <class... Sigs>
 function_wrapper<Sigs...> static_function<Sigs...>::to_function_wrapper() &&
 {
     return function_wrapper<Sigs...>(std::move(*this));
+}
+
+template <class... Sigs>
+template <class Policy>
+function_wrapper<Policy, Sigs...> static_function<Sigs...>::to_function_wrapper() &&
+{
+    return function_wrapper<Policy, Sigs...>(std::move(*this));
 }
 
 // ── Deduction guide ────────────────────────────────────────────────────────────
 // function_wrapper f = my_free_fn;  →  deduces function_wrapper<R(Args...)>
 
 template <class F>
-function_wrapper(F) -> function_wrapper<detail::fn_sig_t<F>>;
+function_wrapper(F) -> function_wrapper<policy::default_policy, detail::fn_sig_t<F>>;
 
 // ── make_function_array ────────────────────────────────────────────────────────
 // Builds a std::array<function_wrapper<UnionOfSigs...>, N> from N callables.
 // Signatures are deduplicated so each appears only once in the vtable.
 
-template <class... Fs>
+template <class Policy = policy::default_policy, class... Fs>
 auto make_function_array(Fs&&... fs)
 {
     static_assert(sizeof...(Fs) > 0, "fw::make_function_array requires at least one callable.");
     using sigs_tl = detail::unique_tl<detail::fn_sig_t<Fs>...>;
-    using wrapper_t = typename detail::tl_apply<sigs_tl, function_wrapper>::type;
+    using policy_and_sigs_tl = typename detail::tl_prepend<Policy, sigs_tl>::type;
+    using wrapper_t = typename detail::tl_apply<policy_and_sigs_tl, function_wrapper>::type;
     return std::array<wrapper_t, sizeof...(Fs)>{ wrapper_t{ std::forward<Fs>(fs) }... };
 }
 
 // ── Sanity check ───────────────────────────────────────────────────────────────
 // Verify that the function_wrapper template is small enough to fit the expected number of signatures in the SBO buffer.
-// If this static_assert fails, it means either FW_SBO_SIZE is too small or the vtable layout has unexpectedly changed
-// and become larger, and you should investigate which case it is and adjust FW_SBO_SIZE if appropriate.
+// If this static_assert fails, the default policy's SBO size or the wrapper layout has changed.
 
-static_assert(sizeof(function_wrapper<int(int, int)>) <= sizeof(void*) * 8, "fw::function_wrapper is unexpectedly large; check FW_SBO_SIZE.");
+static_assert(
+    sizeof(function_wrapper<policy::default_policy, int(int, int)>) <= sizeof(void*) * 8,
+    "fw::function_wrapper is unexpectedly large; check fw::policy::default_policy.");
 } // namespace fw
 
 #endif // FW_FUNCTION_WRAPPER_HPP

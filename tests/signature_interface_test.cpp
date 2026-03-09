@@ -7,7 +7,6 @@
 
 namespace
 {
-
 using BinaryWrapper = fw::function_wrapper<int(int, int)>;
 using BinaryInterface = fw::detail::signature_interface<BinaryWrapper, int(int, int)>;
 using NullaryWrapper = fw::function_wrapper<int()>;

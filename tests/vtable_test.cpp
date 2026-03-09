@@ -6,15 +6,14 @@
 
 namespace
 {
-
-using SmallStorage = fw::detail::wrapper_storage<int(int, int)>;
-using SmallVTable = fw::detail::vtable_instance<int (*)(int, int), int(int, int)>;
-using HeapVTable = fw::detail::vtable_instance<fw::test_support::LargeAdder, int(int, int)>;
-using MoveOnlyVTable = fw::detail::vtable_instance<fw::test_support::MoveOnlyAdder, int(int, int)>;
-using VoidStorage = fw::detail::wrapper_storage<void()>;
-using VoidVTable = fw::detail::vtable_instance<fw::test_support::InvocationCounter, void()>;
-using NoexceptStorage = fw::detail::wrapper_storage<int(int, int) noexcept>;
-using NoexceptVTable = fw::detail::vtable_instance<int (*)(int, int) noexcept, int(int, int) noexcept>;
+using SmallStorage = fw::detail::wrapper_storage<fw::policy::default_policy, int(int, int)>;
+using SmallVTable = fw::detail::vtable_instance<int (*)(int, int), fw::policy::default_policy, int(int, int)>;
+using HeapVTable = fw::detail::vtable_instance<fw::test_support::LargeAdder, fw::policy::default_policy, int(int, int)>;
+using MoveOnlyVTable = fw::detail::vtable_instance<fw::test_support::MoveOnlyAdder, fw::policy::default_policy, int(int, int)>;
+using VoidStorage = fw::detail::wrapper_storage<fw::policy::default_policy, void()>;
+using VoidVTable = fw::detail::vtable_instance<fw::test_support::InvocationCounter, fw::policy::default_policy, void()>;
+using NoexceptStorage = fw::detail::wrapper_storage<fw::policy::default_policy, int(int, int) noexcept>;
+using NoexceptVTable = fw::detail::vtable_instance<int (*)(int, int) noexcept, fw::policy::default_policy, int(int, int) noexcept>;
 
 } // namespace
 

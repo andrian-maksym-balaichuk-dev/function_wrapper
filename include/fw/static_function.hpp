@@ -9,7 +9,7 @@
 
 namespace fw
 {
-template <class... Sigs>
+template <class... Args>
 class function_wrapper;
 
 // ── static_function ───────────────────────────────────────────────────────────
@@ -130,16 +130,34 @@ public:
 
     [[nodiscard]] function_wrapper<Sigs...> to_function_wrapper() const&;
 
+    template <class Policy>
+    [[nodiscard]] function_wrapper<Policy, Sigs...> to_function_wrapper() const&;
+
     [[nodiscard]] function_wrapper<Sigs...> to_function_wrapper() &&;
+
+    template <class Policy>
+    [[nodiscard]] function_wrapper<Policy, Sigs...> to_function_wrapper() &&;
 
     explicit operator function_wrapper<Sigs...>() const&
     {
         return to_function_wrapper();
     }
 
+    template <class Policy>
+    explicit operator function_wrapper<Policy, Sigs...>() const&
+    {
+        return to_function_wrapper<Policy>();
+    }
+
     explicit operator function_wrapper<Sigs...>() &&
     {
         return std::move(*this).to_function_wrapper();
+    }
+
+    template <class Policy>
+    explicit operator function_wrapper<Policy, Sigs...>() &&
+    {
+        return std::move(*this).template to_function_wrapper<Policy>();
     }
 
 private:

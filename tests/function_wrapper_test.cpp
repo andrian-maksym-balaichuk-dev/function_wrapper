@@ -10,7 +10,6 @@
 
 namespace
 {
-
 constexpr auto k_static_add = fw::static_function<int(int, int)>::make<fw::test_support::add>();
 static_assert(k_static_add.has_value());
 static_assert(k_static_add(2, 3) == 5);
@@ -39,7 +38,8 @@ constexpr auto k_static_add_ref_noexcept = fw::static_function_ref<int(int, int)
 static_assert(k_static_add_ref_noexcept.has_value());
 static_assert(k_static_add_ref_noexcept(3, 5) == 8);
 
-static_assert((std::is_same_v<decltype(fw::function_wrapper{ &fw::test_support::add_noexcept }), fw::function_wrapper<int(int, int) noexcept>>));
+static_assert((std::is_same_v<typename decltype(fw::function_wrapper{ &fw::test_support::add_noexcept })::policy_type, fw::policy::default_policy>));
+static_assert((std::is_same_v<typename fw::function_wrapper<int(int, int)>::policy_type, fw::policy::default_policy>));
 static_assert((fw::detail::supports_signature<fw::test_support::NothrowIncrement, int(int) noexcept>::value));
 static_assert(!(fw::detail::supports_signature<fw::test_support::ThrowingIncrement, int(int) noexcept>::value));
 static_assert((fw::detail::has_conflicting_signatures_v<int(int), int(int) noexcept>));

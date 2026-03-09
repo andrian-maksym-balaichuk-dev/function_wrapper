@@ -9,8 +9,8 @@ This document covers the complete public API of `fw`.
 ```cpp
 #include <fw/function_ref.hpp>                 // function_ref<R(Args...)>
 #include <fw/static_function.hpp>              // static_function<Sigs...>, static_function_ref<R(Args...)>
-#include <fw/function_wrapper.hpp>            // function_wrapper<Sigs...>, make_function_array
-#include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper<Sigs...>, make_move_only_function_array
+#include <fw/function_wrapper.hpp>            // function_wrapper<Policy, Sigs...>, make_function_array
+#include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper<Policy, Sigs...>, make_move_only_function_array
 #include <fw/exceptions.hpp>                  // bad_call, bad_signature_call
 ```
 
@@ -18,23 +18,24 @@ Do not include headers under `fw/detail/`. They are internal implementation deta
 
 ---
 
-## `fw::function_wrapper<Sigs...>`
+## `fw::function_wrapper<Sigs...>` or `fw::function_wrapper<Policy, Sigs...>`
 
 ```cpp
-template <class... Sigs>
+template <class Policy, class... Sigs>
 class function_wrapper;
 ```
 
 A type-erased callable wrapper that stores one callable and exposes it through one or more declared call signatures.
 
+If present, `Policy` must be a storage policy such as `fw::policy::sbo<48>`. If omitted, `fw::policy::default_policy` is used.
 `Sigs...` must be function signatures of the form `R(Args...)` or `R(Args...) noexcept`. At least one signature is required.
 `function_wrapper` rejects signature sets that contain both `R(Args...)` and `R(Args...) noexcept` for the same argument list.
 
 ```cpp
-fw::function_wrapper<int(int, int)>                              // one signature
-fw::function_wrapper<int(int, int), float(float, float)>         // two signatures
+fw::function_wrapper<int(int, int)>                              // one signature, default policy
+fw::function_wrapper<int(int, int), float(float, float)>         // two signatures, default policy
 fw::function_wrapper<int(int) noexcept, double(double)>          // mixed noexcept and non-noexcept
-fw::function_wrapper<int(int), float(float), double(double)>     // three signatures
+fw::function_wrapper<fw::policy::sbo<48>, int(int), double(double)> // explicit custom policy
 ```
 
 ---
@@ -290,15 +291,16 @@ Even for `noexcept` signatures, `function_ref` remains nullable, so an empty cal
 
 ---
 
-## `fw::move_only_function_wrapper<Sigs...>`
+## `fw::move_only_function_wrapper<Sigs...>` or `fw::move_only_function_wrapper<Policy, Sigs...>`
 
 ```cpp
-template <class... Sigs>
+template <class Policy, class... Sigs>
 class move_only_function_wrapper;
 ```
 
 A type-erased callable wrapper with the same dispatch, SBO, null-state, and introspection model as `fw::function_wrapper`, but with move-only ownership semantics.
 
+If present, `Policy` must be a storage policy such as `fw::policy::sbo<48>`. If omitted, `fw::policy::default_policy` is used.
 `Sigs...` must be function signatures of the form `R(Args...)` or `R(Args...) noexcept`. At least one signature is required.
 `move_only_function_wrapper` rejects signature sets that contain both `R(Args...)` and `R(Args...) noexcept` for the same argument list.
 
@@ -345,11 +347,11 @@ int result = w(7); // 12
 ## `fw::make_function_array`
 
 ```cpp
-template <class... Fs>
+template <class Policy = fw::policy::default_policy, class... Fs>
 auto make_function_array(Fs&&... fs);
 ```
 
-Constructs a `std::array<function_wrapper<Sigs...>, N>` where:
+Constructs a `std::array<function_wrapper<Policy, Sigs...>, N>` where:
 
 - `N` is `sizeof...(Fs)`.
 - `Sigs...` is the deduplicated union of the deduced signature of each `F` in `Fs...`.
@@ -371,11 +373,11 @@ Requires at least one callable. Fails to compile if no callables are provided.
 ## `fw::make_move_only_function_array`
 
 ```cpp
-template <class... Fs>
+template <class Policy = fw::policy::default_policy, class... Fs>
 auto make_move_only_function_array(Fs&&... fs);
 ```
 
-Constructs a `std::array<move_only_function_wrapper<Sigs...>, N>` where:
+Constructs a `std::array<move_only_function_wrapper<Policy, Sigs...>, N>` where:
 
 - `N` is `sizeof...(Fs)`.
 - `Sigs...` is the deduplicated union of the deduced signature of each `F` in `Fs...`.
@@ -458,10 +460,10 @@ template <class F>
 function_ref(F&) -> function_ref<detail::fn_sig_t<F>>;
 
 template <class F>
-function_wrapper(F) -> function_wrapper<detail::fn_sig_t<F>>;
+function_wrapper(F) -> function_wrapper<fw::policy::default_policy, detail::fn_sig_t<F>>;
 
 template <class F>
-move_only_function_wrapper(F) -> move_only_function_wrapper<detail::fn_sig_t<F>>;
+move_only_function_wrapper(F) -> move_only_function_wrapper<fw::policy::default_policy, detail::fn_sig_t<F>>;
 ```
 
 Allows the callable view/wrapper types to deduce their signature from a plain function pointer or a lambda with a single, non-overloaded `operator()`:
@@ -491,4 +493,4 @@ For free functions and non-generic callables, deduction preserves `noexcept`.
 
 Small callables are stored in an inline buffer without heap allocation. The buffer is sized to hold a function pointer plus pointer-sized captured state. Larger callables are heap-allocated transparently.
 
-The SBO size is controlled by `FW_SBO_SIZE`. The default ensures that both `function_wrapper<int(int, int)>` and `move_only_function_wrapper<int(int, int)>` stay within `sizeof(void*) * 8`. Static assertions enforce this at build time.
+Owning wrappers take their SBO size from the leading policy type. `fw::policy::default_policy` preserves the library default, and custom per-wrapper policies can be declared with `fw::policy::sbo<N>`.

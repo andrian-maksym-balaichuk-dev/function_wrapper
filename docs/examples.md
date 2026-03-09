@@ -1,6 +1,6 @@
 # Examples
 
-This document shows representative uses of `fw::function_wrapper`, `fw::move_only_function_wrapper`, and `fw::function_ref`, ordered from the simplest to the most advanced. Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`.
+This document shows representative uses of `fw::function_wrapper`, `fw::move_only_function_wrapper`, and `fw::function_ref`, ordered from the simplest to the most advanced. Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. Omitting a policy on an owning wrapper uses `fw::policy::default_policy`.
 
 ---
 

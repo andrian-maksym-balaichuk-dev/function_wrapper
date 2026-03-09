@@ -10,7 +10,6 @@
 
 namespace
 {
-
 using UnaryFunctionRef = fw::function_ref<int(int)>;
 using BinaryFunctionRef = fw::function_ref<int(int, int)>;
 using NoexceptUnaryFunctionRef = fw::function_ref<int(int) noexcept>;

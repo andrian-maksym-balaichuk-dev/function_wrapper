@@ -49,10 +49,18 @@
 #define FW_HAS_STD_UNREACHABLE 0
 #endif
 
-// Small-buffer optimization capacity used by the wrapper.
-#ifndef FW_SBO_SIZE
-#define FW_SBO_SIZE (3 * sizeof(void*))
-#endif
+namespace fw::policy
+{
+template <std::size_t Size>
+struct sbo
+{
+    static_assert(Size > 0, "fw::policy::sbo requires a non-zero storage size.");
+
+    static constexpr std::size_t storage_size = Size;
+};
+
+using default_policy = sbo<3 * sizeof(void*)>;
+} // namespace fw::policy
 
 namespace fw::detail
 {
@@ -73,6 +81,21 @@ struct is_specialization_of<Template<Args...>, Template> : std::true_type
 
 template <class T, template <class...> class Template>
 inline constexpr bool is_specialization_of_v = is_specialization_of<remove_cvref_t<T>, Template>::value;
+
+template <class Policy, class = void>
+struct is_storage_policy : std::false_type
+{};
+
+template <class Policy>
+struct is_storage_policy<Policy, std::void_t<decltype(remove_cvref_t<Policy>::storage_size)>>
+: std::bool_constant<std::is_convertible_v<decltype(remove_cvref_t<Policy>::storage_size), std::size_t>>
+{};
+
+template <class Policy>
+inline constexpr bool is_storage_policy_v = is_storage_policy<Policy>::value;
+
+template <class Policy>
+inline constexpr std::size_t sbo_storage_size_v = static_cast<std::size_t>(remove_cvref_t<Policy>::storage_size);
 
 
 // ── Function Signature Traits ───────────────────────────────────────────────
@@ -201,9 +224,9 @@ concept ExactNothrowInvocableR = ExactInvocableR<Fn, R, Args...> && noexcept(std
 
 // ── SBO Eligibility ─────────────────────────────────────────────────────────
 
-template <class T>
+template <class Policy, class T>
 inline constexpr bool fits_in_sbo_v =
-    sizeof(T) <= FW_SBO_SIZE && alignof(T) <= alignof(std::max_align_t) && std::is_nothrow_move_constructible_v<T>;
+    sizeof(T) <= sbo_storage_size_v<Policy> && alignof(T) <= alignof(std::max_align_t) && std::is_nothrow_move_constructible_v<T>;
 
 
 // ── Signature Deduction ─────────────────────────────────────────────────────
@@ -317,12 +340,31 @@ template <class... Ts>
 struct typelist
 {};
 
+template <class T, class TL>
+struct tl_prepend;
+
+template <class T, class... Ts>
+struct tl_prepend<T, typelist<Ts...>>
+{
+    using type = typelist<T, Ts...>;
+};
+
 template <class List, class T>
 struct tl_contains;
 
 template <class T, class... Ts>
 struct tl_contains<typelist<Ts...>, T> : std::bool_constant<(std::is_same_v<T, Ts> || ...)>
 {};
+
+template <class TL>
+struct tl_size;
+
+template <class... Ts>
+struct tl_size<typelist<Ts...>> : std::integral_constant<std::size_t, sizeof...(Ts)>
+{};
+
+template <class TL>
+inline constexpr std::size_t tl_size_v = tl_size<TL>::value;
 
 template <class... Ts>
 struct all_same : std::true_type
@@ -359,6 +401,51 @@ template <template <class...> class Z, class... Ts>
 struct tl_apply<typelist<Ts...>, Z>
 {
     using type = Z<Ts...>;
+};
+
+template <class TL>
+struct tl_all_function_signatures;
+
+template <class... Sigs>
+struct tl_all_function_signatures<typelist<Sigs...>> : std::bool_constant<(is_function_signature_v<Sigs> && ...)>
+{};
+
+template <class TL>
+inline constexpr bool tl_all_function_signatures_v = tl_all_function_signatures<TL>::value;
+
+template <class TL>
+struct tl_has_conflicting_signatures;
+
+template <class... Sigs>
+struct tl_has_conflicting_signatures<typelist<Sigs...>> : std::bool_constant<has_conflicting_signatures_v<Sigs...>>
+{};
+
+template <class TL>
+inline constexpr bool tl_has_conflicting_signatures_v = tl_has_conflicting_signatures<TL>::value;
+
+template <class... Args>
+struct wrapper_template_arguments;
+
+template <>
+struct wrapper_template_arguments<>
+{
+    using policy = fw::policy::default_policy;
+    using signatures = typelist<>;
+
+    template <template <class, class...> class Z>
+    using apply = Z<policy>;
+};
+
+template <class First, class... Rest>
+struct wrapper_template_arguments<First, Rest...>
+{
+    static constexpr bool has_explicit_policy = is_storage_policy_v<First>;
+
+    using policy = std::conditional_t<has_explicit_policy, remove_cvref_t<First>, fw::policy::default_policy>;
+    using signatures = std::conditional_t<has_explicit_policy, typelist<Rest...>, typelist<First, Rest...>>;
+
+    template <template <class, class...> class Z>
+    using apply = typename tl_apply<typename tl_prepend<policy, signatures>::type, Z>::type;
 };
 
 

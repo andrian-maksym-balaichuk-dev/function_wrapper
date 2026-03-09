@@ -14,6 +14,9 @@ namespace fw::detail
 template <class Derived, class Sig>
 struct signature_interface;
 
+template <class Derived, class TL>
+struct signature_interface_pack;
+
 template <class Derived, class R, class... Args>
 struct signature_interface<Derived, R(Args...)>
 {
@@ -189,6 +192,10 @@ public:
     R operator()(Args... args) && { return dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
     // clang-format on
 };
+
+template <class Derived, class... Sigs>
+struct signature_interface_pack<Derived, typelist<Sigs...>> : signature_interface<Derived, Sigs>...
+{};
 } // namespace fw::detail
 
 #endif // FW_DETAIL_SIGNATURE_INTERFACE_HPP
