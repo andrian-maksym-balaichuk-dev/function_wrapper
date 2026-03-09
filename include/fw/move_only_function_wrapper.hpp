@@ -119,6 +119,30 @@ public:
         return storage_.vt ? *storage_.vt->type : typeid(void);
     }
 
+    template <class Sig>
+    [[nodiscard]] static constexpr bool contains_signature() noexcept
+    {
+        return detail::tl_contains_v<signatures_type, Sig>;
+    }
+
+    template <class Sig>
+    [[nodiscard]] bool has_bound_signature() const noexcept
+    {
+        if constexpr (!contains_signature<Sig>())
+        {
+            return false;
+        }
+        else
+        {
+            return detail::vtable_has_bound_signature<Sig>(storage_.vt);
+        }
+    }
+
+    [[nodiscard]] auto bound_signatures() const noexcept
+    {
+        return bound_signatures_impl_(signatures_type{});
+    }
+
     template <class... CallArgs>
     decltype(auto) call(CallArgs&&... args) &
     {
@@ -247,6 +271,12 @@ public:
 #endif
 
 private:
+    template <class... DeclaredSigs>
+    [[nodiscard]] auto bound_signatures_impl_(detail::typelist<DeclaredSigs...>) const noexcept
+    {
+        return std::array<bool, sizeof...(DeclaredSigs)>{ has_bound_signature<DeclaredSigs>()... };
+    }
+
     template <class Self, class... CallArgs>
     static decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
     {

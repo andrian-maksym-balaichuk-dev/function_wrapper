@@ -201,6 +201,9 @@ w.swap(other);               // swap with another wrapper
 // Introspection
 const std::type_info& ti = w.target_type();
 int (*fn)(int) = *w.target<int(*)(int)>();
+bool declares = decltype(w)::contains_signature<int(int)>();
+bool bound = w.has_bound_signature<int(int)>();
+auto slots = w.bound_signatures(); // std::array<bool, N> in declared-signature order
 ```
 
 Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. For the same base signature, you must choose one or the other.
@@ -225,6 +228,9 @@ int add_noexcept(int a, int b) noexcept { return a + b; }
 
 constexpr auto sf = fw::static_function<int(int, int) noexcept>::make<add_noexcept>();
 constexpr auto sr = fw::static_function_ref<int(int, int) noexcept>::make<add_noexcept>();
+
+static_assert(decltype(sf)::contains_signature<int(int, int) noexcept>());
+static_assert(sf.has_bound_signature<int(int, int) noexcept>());
 ```
 
 ### `fw::make_function_array`

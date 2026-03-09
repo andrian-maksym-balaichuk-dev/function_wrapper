@@ -235,6 +235,33 @@ template <class T>
 
 Returns a pointer to the stored callable if its type is exactly `T`, otherwise `nullptr`.
 
+#### `contains_signature<Sig>()`
+
+```cpp
+template <class Sig>
+[[nodiscard]] static constexpr bool contains_signature() noexcept;
+```
+
+Returns `true` if `Sig` appears in the wrapper's declared signature set.
+
+#### `has_bound_signature<Sig>()`
+
+```cpp
+template <class Sig>
+[[nodiscard]] bool has_bound_signature() const noexcept;
+```
+
+Returns `true` if the wrapper currently stores a callable and that callable has at least one live call slot for `Sig`.
+Returns `false` for empty wrappers and for undeclared signatures.
+
+#### `bound_signatures()`
+
+```cpp
+[[nodiscard]] std::array<bool, N> bound_signatures() const noexcept;
+```
+
+Returns one boolean per declared signature, in declaration order. Each entry reports whether the currently stored callable is bound for that signature.
+
 ---
 
 ## `fw::function_ref<Sig>`
@@ -330,6 +357,9 @@ Copy construction and copy assignment are deleted.
 - comparison with `nullptr`
 - `reset()` / `swap()`
 - `target_type()` / `target<T>()`
+- `contains_signature<Sig>()`
+- `has_bound_signature<Sig>()`
+- `bound_signatures()`
 
 Behavior is the same as `function_wrapper`, except ownership transfer is move-only.
 

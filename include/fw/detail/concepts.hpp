@@ -356,6 +356,9 @@ template <class T, class... Ts>
 struct tl_contains<typelist<Ts...>, T> : std::bool_constant<(std::is_same_v<T, Ts> || ...)>
 {};
 
+template <class TL, class T>
+inline constexpr bool tl_contains_v = tl_contains<TL, T>::value;
+
 template <class TL>
 struct tl_size;
 

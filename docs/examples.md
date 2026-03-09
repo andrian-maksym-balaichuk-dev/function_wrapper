@@ -77,6 +77,44 @@ int main()
 
 ---
 
+## 2b. Introspection and Bound Signatures
+
+Use the wrapper introspection helpers when you need to know whether a signature is declared at the type level and whether the currently stored callable actually binds that slot.
+
+```cpp
+#include <array>
+#include <fw/function_wrapper.hpp>
+#include <fw/static_function.hpp>
+
+int add(int a, int b) { return a + b; }
+
+int main()
+{
+    fw::function_wrapper<int(int, int), double(double, double)> owned = add;
+
+    static_assert(decltype(owned)::contains_signature<int(int, int)>());
+    static_assert(!decltype(owned)::contains_signature<void()>());
+
+    const bool owns_int_slot = owned.has_bound_signature<int(int, int)>();
+    const bool owns_double_slot = owned.has_bound_signature<double(double, double)>();
+    const std::array<bool, 2> owned_slots = owned.bound_signatures();
+
+    constexpr auto plain = [] {
+        fw::static_function<int(int, int), double(double, double)> fn;
+        fn.bind<int(int, int)>(add);
+        return fn;
+    }();
+
+    static_assert(plain.has_bound_signature<int(int, int)>());
+    static_assert(!plain.has_bound_signature<double(double, double)>());
+    static_assert(plain.bound_signatures() == std::array<bool, 2>{ true, false });
+
+    return owns_int_slot && !owns_double_slot && owned_slots[0] && !owned_slots[1] ? 0 : 1;
+}
+```
+
+---
+
 ## 3. Mixed Arithmetic — Common Target Preference
 
 When arguments mix `int` and `float`, `fw` uses the common numeric target preference to pick the `float` signature rather than failing.

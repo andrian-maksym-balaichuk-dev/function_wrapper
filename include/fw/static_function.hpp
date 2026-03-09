@@ -4,6 +4,7 @@
 #include <fw/detail/concepts.hpp>
 #include <fw/exceptions.hpp>
 
+#include <array>
 #include <tuple>
 #include <utility>
 
@@ -40,6 +41,12 @@ class static_function
 
 public:
     constexpr static_function() noexcept = default;
+
+    template <class Sig>
+    [[nodiscard]] static constexpr bool contains_signature() noexcept
+    {
+        return detail::tl_contains_v<detail::typelist<Sigs...>, Sig>;
+    }
 
     template <class Sig>
     constexpr explicit static_function(typename slot<Sig>::pointer_type pointer) noexcept
@@ -85,6 +92,24 @@ public:
     [[nodiscard]] constexpr typename slot<Sig>::pointer_type target() const noexcept
     {
         return std::get<slot<Sig>>(m_slots).pointer;
+    }
+
+    template <class Sig>
+    [[nodiscard]] constexpr bool has_bound_signature() const noexcept
+    {
+        if constexpr (!contains_signature<Sig>())
+        {
+            return false;
+        }
+        else
+        {
+            return target<Sig>() != nullptr;
+        }
+    }
+
+    [[nodiscard]] constexpr std::array<bool, sizeof...(Sigs)> bound_signatures() const noexcept
+    {
+        return { has_bound_signature<Sigs>()... };
     }
 
     constexpr void reset() noexcept

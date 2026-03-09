@@ -51,6 +51,12 @@ struct signature_vtable_entry<R(Args...) noexcept>
     rcall_t rcall{ nullptr };
 };
 
+template <class Sig>
+[[nodiscard]] constexpr bool signature_entry_has_bound_call(const signature_vtable_entry<Sig>& entry) noexcept
+{
+    return entry.lcall != nullptr || entry.clcall != nullptr || entry.rcall != nullptr;
+}
+
 
 // ── forward declaration ────────────────────────────────────────────────────────
 // The wrapper_vtable struct is defined after wrapper_storage since it needs to refer to it for the lifecycle function
@@ -112,6 +118,24 @@ struct wrapper_vtable : signature_vtable_entry<Sigs>...
     get_ptr_t get_ptr;
     get_cptr_t get_cptr;
 };
+
+template <class Sig, class Policy, class... Sigs>
+[[nodiscard]] constexpr bool vtable_has_bound_signature(const wrapper_vtable<Policy, Sigs...>* vt) noexcept
+{
+    if (!vt)
+    {
+        return false;
+    }
+
+    if constexpr (!tl_contains_v<typelist<Sigs...>, Sig>)
+    {
+        return false;
+    }
+    else
+    {
+        return signature_entry_has_bound_call(static_cast<const signature_vtable_entry<Sig>&>(*vt));
+    }
+}
 
 
 // ── SBO pointer helpers ────────────────────────────────────────────────────────

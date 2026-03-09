@@ -3,6 +3,7 @@
 #include <fw/exceptions.hpp>
 #include <fw/function_wrapper.hpp>
 
+#include <array>
 #include <type_traits>
 #include <utility>
 
@@ -40,6 +41,10 @@ static_assert(k_static_add_ref_noexcept(3, 5) == 8);
 
 static_assert((std::is_same_v<typename decltype(fw::function_wrapper{ &fw::test_support::add_noexcept })::policy_type, fw::policy::default_policy>));
 static_assert((std::is_same_v<typename fw::function_wrapper<int(int, int)>::policy_type, fw::policy::default_policy>));
+static_assert((fw::function_wrapper<int(int, int), double(double, double)>::contains_signature<int(int, int)>()));
+static_assert((!fw::function_wrapper<int(int, int), double(double, double)>::contains_signature<void()>()));
+static_assert((fw::static_function<int(int, int), double(double, double)>::contains_signature<double(double, double)>()));
+static_assert((!fw::static_function<int(int, int), double(double, double)>::contains_signature<float(float, float)>()));
 static_assert((fw::detail::supports_signature<fw::test_support::NothrowIncrement, int(int) noexcept>::value));
 static_assert(!(fw::detail::supports_signature<fw::test_support::ThrowingIncrement, int(int) noexcept>::value));
 static_assert((fw::detail::has_conflicting_signatures_v<int(int), int(int) noexcept>));
@@ -69,6 +74,26 @@ TEST(FunctionWrapper, GivenEmptyWrapperWhenObservedThenStateQueriesStayConsisten
 
     wrapper.reset();
     EXPECT_FALSE(wrapper.has_value());
+}
+
+TEST(FunctionWrapper, GivenWrappersWhenIntrospectedThenDeclaredAndBoundSignaturesAreReported)
+{
+    using wrapper_type = fw::function_wrapper<int(int, int), double(double, double)>;
+
+    wrapper_type empty;
+    EXPECT_TRUE(wrapper_type::contains_signature<int(int, int)>());
+    EXPECT_TRUE(wrapper_type::contains_signature<double(double, double)>());
+    EXPECT_FALSE(wrapper_type::contains_signature<void()>());
+    EXPECT_FALSE(empty.has_bound_signature<int(int, int)>());
+    EXPECT_FALSE(empty.has_bound_signature<double(double, double)>());
+    EXPECT_FALSE(empty.has_bound_signature<void()>());
+    EXPECT_EQ(empty.bound_signatures(), (std::array<bool, 2>{ false, false }));
+
+    wrapper_type wrapper = fw::test_support::add;
+    EXPECT_TRUE(wrapper.has_bound_signature<int(int, int)>());
+    EXPECT_FALSE(wrapper.has_bound_signature<double(double, double)>());
+    EXPECT_FALSE(wrapper.has_bound_signature<void()>());
+    EXPECT_EQ(wrapper.bound_signatures(), (std::array<bool, 2>{ true, false }));
 }
 
 TEST(FunctionWrapper, GivenStoredCallablesWhenQueriedThenTargetsAndTypesArePreserved)
@@ -254,6 +279,28 @@ TEST(FunctionWrapper, GivenStaticFunctionWithMultipleSignaturesWhenInvokedThenBe
     static_assert(std::is_same_v<decltype(wrapper(1.5, 2.0)), double>);
     EXPECT_EQ(wrapper(6, 7), 13);
     EXPECT_DOUBLE_EQ(wrapper(1.5, 3.0), 4.5);
+}
+
+TEST(FunctionWrapper, GivenStaticFunctionWhenIntrospectedThenDeclaredAndBoundSlotsAreReported)
+{
+    constexpr auto wrapper = [] {
+        fw::static_function<int(int, int), double(double, double)> result;
+        result.bind<int(int, int)>(fw::test_support::add);
+        return result;
+    }();
+
+    static_assert(decltype(wrapper)::contains_signature<int(int, int)>());
+    static_assert(decltype(wrapper)::contains_signature<double(double, double)>());
+    static_assert(!decltype(wrapper)::contains_signature<void()>());
+    static_assert(wrapper.has_bound_signature<int(int, int)>());
+    static_assert(!wrapper.has_bound_signature<double(double, double)>());
+    static_assert(!wrapper.has_bound_signature<void()>());
+    static_assert(wrapper.bound_signatures() == std::array<bool, 2>{ true, false });
+
+    EXPECT_TRUE(wrapper.has_bound_signature<int(int, int)>());
+    EXPECT_FALSE(wrapper.has_bound_signature<double(double, double)>());
+    EXPECT_FALSE(wrapper.has_bound_signature<void()>());
+    EXPECT_EQ(wrapper.bound_signatures(), (std::array<bool, 2>{ true, false }));
 }
 
 TEST(FunctionWrapper, GivenStaticFunctionRefWhenInvokedThenPointerStyleConstexprWrapperWorks)

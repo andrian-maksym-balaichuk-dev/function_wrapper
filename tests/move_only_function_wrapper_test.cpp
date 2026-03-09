@@ -3,6 +3,7 @@
 #include <fw/exceptions.hpp>
 #include <fw/move_only_function_wrapper.hpp>
 
+#include <array>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -20,6 +21,8 @@ static_assert(!std::is_copy_constructible_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_copy_assignable_v<BinaryMoveOnlyWrapper>);
 static_assert(!std::is_constructible_v<BinaryMoveOnlyWrapper, fw::test_support::MoveOnlyAdder&>);
 static_assert((std::is_same_v<typename fw::move_only_function_wrapper<int(int, int)>::policy_type, fw::policy::default_policy>));
+static_assert((MixedMoveOnlyWrapper::contains_signature<int(int, int)>()));
+static_assert((!MixedMoveOnlyWrapper::contains_signature<void()>()));
 static_assert((fw::detail::supports_signature<fw::test_support::NothrowIncrement, int(int) noexcept>::value));
 
 } // namespace
@@ -51,6 +54,24 @@ TEST(MoveOnlyFunctionWrapper, GivenMoveOnlyCallableWhenStoredThenTargetsAndTypes
     const auto& const_wrapper = wrapper;
     EXPECT_EQ(const_wrapper(1, 5), 9);
     EXPECT_NE(const_wrapper.target<fw::test_support::MoveOnlyAdder>(), nullptr);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenWrappersWhenIntrospectedThenDeclaredAndBoundSignaturesAreReported)
+{
+    MixedMoveOnlyWrapper empty;
+    EXPECT_TRUE(MixedMoveOnlyWrapper::contains_signature<int(int, int)>());
+    EXPECT_TRUE(MixedMoveOnlyWrapper::contains_signature<double(double, double)>());
+    EXPECT_FALSE(MixedMoveOnlyWrapper::contains_signature<void()>());
+    EXPECT_FALSE(empty.has_bound_signature<int(int, int)>());
+    EXPECT_FALSE(empty.has_bound_signature<double(double, double)>());
+    EXPECT_FALSE(empty.has_bound_signature<void()>());
+    EXPECT_EQ(empty.bound_signatures(), (std::array<bool, 2>{ false, false }));
+
+    MixedMoveOnlyWrapper wrapper = fw::test_support::MoveOnlyNumericTransform{ 2 };
+    EXPECT_TRUE(wrapper.has_bound_signature<int(int, int)>());
+    EXPECT_TRUE(wrapper.has_bound_signature<double(double, double)>());
+    EXPECT_FALSE(wrapper.has_bound_signature<void()>());
+    EXPECT_EQ(wrapper.bound_signatures(), (std::array<bool, 2>{ true, true }));
 }
 
 TEST(MoveOnlyFunctionWrapper, GivenLargeMoveOnlyCallableWhenMovedThenHeapStorageRemainsValid)
