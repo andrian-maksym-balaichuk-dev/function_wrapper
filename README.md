@@ -46,6 +46,7 @@ float r2 = add(1.f, 2.f); // dispatches to float(float, float)
 | Null-check / empty state | yes | yes |
 | `noexcept` signature declarations | no | yes |
 | Target introspection | yes | yes |
+| Local benchmark suite | no | yes |
 | Header-only | no | yes |
 | CMake package | no | yes |
 | Conan package | no | yes |
@@ -339,6 +340,7 @@ See [Development Guide](docs/development.md) for the full local workflow, IDE se
 | [Integration Guide](docs/integration.md) | All supported integration modes with CMake and Conan |
 | [Examples](docs/examples.md) | Annotated code examples covering the main use cases |
 | [API Reference](docs/api.md) | Full public API reference |
+| [Benchmark Guide](docs/benchmarks.md) | Local microbenchmark coverage and run instructions |
 | [Development Guide](docs/development.md) | Local workflow, test targets, coverage, packaging |
 | [Contributing](CONTRIBUTING.md) | How to contribute: workflow, conventions, review process |
 

@@ -22,6 +22,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Public project switches.
 option(BUILD_TESTING "Enable testing for this project." ${PROJECT_IS_TOP_LEVEL})
 option(FW_BUILD_TESTS "Build the fw test suite." ${PROJECT_IS_TOP_LEVEL})
+option(FW_BUILD_BENCHMARKS "Build the local fw benchmark executable." ${PROJECT_IS_TOP_LEVEL})
 cmake_dependent_option(
     FW_ENABLE_COVERAGE
     "Enable LLVM coverage instrumentation for the fw test suite."
@@ -34,6 +35,7 @@ cmake_dependent_option(
 set(FW_PACKAGE_CMAKE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/fw")
 set(FW_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(FW_TEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+set(FW_BENCHMARK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks")
 set(FW_PACKAGE_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/fwConfig.cmake.in")
 
 # Header-only public target.
@@ -231,4 +233,30 @@ if(FW_BUILD_TESTS AND BUILD_TESTING)
             COMMENT "Run wrapper tests and print LLVM coverage for the library headers."
         )
     endif()
+endif()
+
+if(FW_BUILD_BENCHMARKS)
+    add_executable(fw_benchmarks ${FW_BENCHMARK_DIR}/fw_benchmarks.cpp)
+    target_link_libraries(fw_benchmarks PRIVATE fw::wrapper)
+    target_compile_features(fw_benchmarks PRIVATE cxx_std_23)
+    set_target_properties(
+        fw_benchmarks
+        PROPERTIES
+            CXX_EXTENSIONS OFF
+            FOLDER "benchmarks"
+    )
+
+    if(MSVC)
+        target_compile_options(fw_benchmarks PRIVATE /O2)
+    else()
+        target_compile_options(fw_benchmarks PRIVATE -O3)
+    endif()
+
+    add_custom_target(fw_run_benchmarks
+        COMMAND $<TARGET_FILE:fw_benchmarks>
+        DEPENDS fw_benchmarks
+        USES_TERMINAL
+        COMMENT "Build and run the fw benchmark suite."
+    )
+    set_target_properties(fw_run_benchmarks PROPERTIES FOLDER "benchmarks")
 endif()
