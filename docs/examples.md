@@ -115,6 +115,36 @@ int main()
 
 ---
 
+## 2c. Non-Throwing `try_call`
+
+Use `try_call(...)` when you want the library's empty/missing-slot failures as status codes instead of `fw::bad_call` or `fw::bad_signature_call`.
+
+```cpp
+#include <fw/function_wrapper.hpp>
+
+int add(int a, int b) { return a + b; }
+
+int main()
+{
+    fw::function_wrapper<int(int, int)> empty;
+    auto empty_result = empty.try_call(1, 2);
+
+    fw::function_wrapper<int(int, int)> live = add;
+    auto success = live.try_call(3, 4);
+
+    if (empty_result.status() == fw::try_call_status::Empty && success)
+    {
+        return success.value(); // 7
+    }
+
+    return 1;
+}
+```
+
+`try_call(...)` only converts the library-generated dispatch errors. If the bound target itself throws through a non-`noexcept` signature, that exception still propagates.
+
+---
+
 ## 3. Mixed Arithmetic — Common Target Preference
 
 When arguments mix `int` and `float`, `fw` uses the common numeric target preference to pick the `float` signature rather than failing.

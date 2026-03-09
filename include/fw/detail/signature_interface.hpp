@@ -1,6 +1,7 @@
 #ifndef FW_DETAIL_SIGNATURE_INTERFACE_HPP
 #define FW_DETAIL_SIGNATURE_INTERFACE_HPP
 
+#include <fw/call_result.hpp>
 #include <fw/detail/vtable.hpp>
 #include <fw/exceptions.hpp>
 
@@ -21,6 +22,84 @@ template <class Derived, class R, class... Args>
 struct signature_interface<Derived, R(Args...)>
 {
 private:
+    static try_call_result<R> try_dispatch_l_(Derived& self, Args... args) noexcept(noexcept(std::declval<typename signature_vtable_entry<R(Args...)>::lcall_t>()(
+        self.object_ptr(),
+        std::forward<Args>(args)...)))
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            return try_call_result<R>::empty();
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
+        if (!entry.lcall)
+        {
+            return try_call_result<R>::signature_mismatch();
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return try_call_result<R>::success(entry.lcall(self.object_ptr(), std::forward<Args>(args)...));
+        }
+        else
+        {
+            entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            return try_call_result<R>::success();
+        }
+    }
+
+    static try_call_result<R> try_dispatch_cl_(const Derived& self, Args... args) noexcept(noexcept(std::declval<typename signature_vtable_entry<R(Args...)>::clcall_t>()(
+        self.object_ptr(),
+        std::forward<Args>(args)...)))
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            return try_call_result<R>::empty();
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
+        if (!entry.clcall)
+        {
+            return try_call_result<R>::signature_mismatch();
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return try_call_result<R>::success(entry.clcall(self.object_ptr(), std::forward<Args>(args)...));
+        }
+        else
+        {
+            entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            return try_call_result<R>::success();
+        }
+    }
+
+    static try_call_result<R> try_dispatch_r_(Derived& self, Args... args) noexcept(noexcept(std::declval<typename signature_vtable_entry<R(Args...)>::rcall_t>()(
+        self.object_ptr(),
+        std::forward<Args>(args)...)))
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            return try_call_result<R>::empty();
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
+        if (!entry.rcall)
+        {
+            return try_call_result<R>::signature_mismatch();
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return try_call_result<R>::success(entry.rcall(self.object_ptr(), std::forward<Args>(args)...));
+        }
+        else
+        {
+            entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            return try_call_result<R>::success();
+        }
+    }
+
     static R dispatch_l_(Derived& self, Args... args)
     {
         const auto* vt = self.vtable_ptr();
@@ -95,6 +174,19 @@ private:
 
 public:
     // clang-format off
+    try_call_result<R> try_call(Args... args) & noexcept(noexcept(try_dispatch_l_(static_cast<Derived&>(*this), std::forward<Args>(args)...)))
+    {
+        return try_dispatch_l_(static_cast<Derived&>(*this), std::forward<Args>(args)...);
+    }
+    try_call_result<R> try_call(Args... args) const& noexcept(noexcept(try_dispatch_cl_(static_cast<const Derived&>(*this), std::forward<Args>(args)...)))
+    {
+        return try_dispatch_cl_(static_cast<const Derived&>(*this), std::forward<Args>(args)...);
+    }
+    try_call_result<R> try_call(Args... args) && noexcept(noexcept(try_dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...)))
+    {
+        return try_dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...);
+    }
+
     R call(Args... args) & { return dispatch_l_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
     R call(Args... args) const& { return dispatch_cl_(static_cast<const Derived&>(*this), std::forward<Args>(args)...); }
     R call(Args... args) && { return dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
@@ -109,6 +201,78 @@ template <class Derived, class R, class... Args>
 struct signature_interface<Derived, R(Args...) noexcept>
 {
 private:
+    static try_call_result<R> try_dispatch_l_(Derived& self, Args... args) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            return try_call_result<R>::empty();
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
+        if (!entry.lcall)
+        {
+            return try_call_result<R>::signature_mismatch();
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return try_call_result<R>::success(entry.lcall(self.object_ptr(), std::forward<Args>(args)...));
+        }
+        else
+        {
+            entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            return try_call_result<R>::success();
+        }
+    }
+
+    static try_call_result<R> try_dispatch_cl_(const Derived& self, Args... args) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            return try_call_result<R>::empty();
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
+        if (!entry.clcall)
+        {
+            return try_call_result<R>::signature_mismatch();
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return try_call_result<R>::success(entry.clcall(self.object_ptr(), std::forward<Args>(args)...));
+        }
+        else
+        {
+            entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            return try_call_result<R>::success();
+        }
+    }
+
+    static try_call_result<R> try_dispatch_r_(Derived& self, Args... args) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        if (!vt)
+        {
+            return try_call_result<R>::empty();
+        }
+
+        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
+        if (!entry.rcall)
+        {
+            return try_call_result<R>::signature_mismatch();
+        }
+        if constexpr (!std::is_void_v<R>)
+        {
+            return try_call_result<R>::success(entry.rcall(self.object_ptr(), std::forward<Args>(args)...));
+        }
+        else
+        {
+            entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            return try_call_result<R>::success();
+        }
+    }
+
     static R dispatch_l_(Derived& self, Args... args)
     {
         const auto* vt = self.vtable_ptr();
@@ -183,6 +347,10 @@ private:
 
 public:
     // clang-format off
+    try_call_result<R> try_call(Args... args) & noexcept { return try_dispatch_l_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
+    try_call_result<R> try_call(Args... args) const& noexcept { return try_dispatch_cl_(static_cast<const Derived&>(*this), std::forward<Args>(args)...); }
+    try_call_result<R> try_call(Args... args) && noexcept { return try_dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
+
     R call(Args... args) & { return dispatch_l_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }
     R call(Args... args) const& { return dispatch_cl_(static_cast<const Derived&>(*this), std::forward<Args>(args)...); }
     R call(Args... args) && { return dispatch_r_(static_cast<Derived&>(*this), std::forward<Args>(args)...); }

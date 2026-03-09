@@ -159,6 +159,24 @@ public:
     }
 
     template <class... CallArgs>
+    auto try_call(CallArgs&&... args) &
+    {
+        return dispatch_try_call_(*this, std::forward<CallArgs>(args)...);
+    }
+
+    template <class... CallArgs>
+    auto try_call(CallArgs&&... args) const&
+    {
+        return dispatch_try_call_(*this, std::forward<CallArgs>(args)...);
+    }
+
+    template <class... CallArgs>
+    auto try_call(CallArgs&&... args) &&
+    {
+        return dispatch_try_call_(std::move(*this), std::forward<CallArgs>(args)...);
+    }
+
+    template <class... CallArgs>
     decltype(auto) call(CallArgs&&... args) &
     {
         return dispatch_call_(*this, std::forward<CallArgs>(args)...);
@@ -293,6 +311,22 @@ private:
     }
 
     template <class Self, class... CallArgs>
+    static auto dispatch_try_call_(Self&& self, CallArgs&&... args)
+    {
+        using best_match = detail::best_signature_t<signatures_type, CallArgs...>;
+
+        if constexpr (!best_match::found)
+        {
+            static_assert(best_match::found, "fw::function_wrapper: no declared signature accepts these arguments.");
+        }
+        else
+        {
+            static_assert(!best_match::ambiguous, "fw::function_wrapper: call is ambiguous across declared signatures.");
+            return std::forward<Self>(self).template try_invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+        }
+    }
+
+    template <class Self, class... CallArgs>
     static decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
     {
         using best_match = detail::best_signature_t<signatures_type, CallArgs...>;
@@ -306,6 +340,27 @@ private:
             static_assert(!best_match::ambiguous, "fw::function_wrapper: call is ambiguous across declared signatures.");
             return std::forward<Self>(self).template invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
         }
+    }
+
+    template <class Sig, class... CallArgs>
+    auto try_invoke_signature_(CallArgs&&... args) &
+    {
+        auto& base = static_cast<detail::signature_interface<function_wrapper, Sig>&>(*this);
+        return detail::invoke_signature_try_call<Sig>(base, std::forward<CallArgs>(args)...);
+    }
+
+    template <class Sig, class... CallArgs>
+    auto try_invoke_signature_(CallArgs&&... args) const&
+    {
+        const auto& base = static_cast<const detail::signature_interface<function_wrapper, Sig>&>(*this);
+        return detail::invoke_signature_try_call<Sig>(base, std::forward<CallArgs>(args)...);
+    }
+
+    template <class Sig, class... CallArgs>
+    auto try_invoke_signature_(CallArgs&&... args) &&
+    {
+        auto&& base = static_cast<detail::signature_interface<function_wrapper, Sig>&&>(*this);
+        return detail::invoke_signature_try_call<Sig>(std::move(base), std::forward<CallArgs>(args)...);
     }
 
     template <class Sig, class... CallArgs>

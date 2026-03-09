@@ -32,6 +32,10 @@ TEST(SignatureInterface, GivenEmptyWrapperWhenDispatchedThenEveryPathThrowsBadCa
     EXPECT_THROW(static_cast<void>(static_cast<BinaryInterface&>(wrapper)(1, 2)), fw::bad_call);
     EXPECT_THROW(static_cast<void>(static_cast<const BinaryInterface&>(wrapper)(1, 2)), fw::bad_call);
     EXPECT_THROW(static_cast<void>(static_cast<BinaryInterface&&>(wrapper)(1, 2)), fw::bad_call);
+
+    EXPECT_EQ(static_cast<BinaryInterface&>(wrapper).try_call(1, 2).status(), fw::try_call_status::Empty);
+    EXPECT_EQ(static_cast<const BinaryInterface&>(wrapper).try_call(1, 2).status(), fw::try_call_status::Empty);
+    EXPECT_EQ(static_cast<BinaryInterface&&>(wrapper).try_call(1, 2).status(), fw::try_call_status::Empty);
 }
 
 TEST(SignatureInterface, GivenMissingSlotsWhenConstOrRvalueCalledThenBadSignatureCallIsThrown)
@@ -41,6 +45,9 @@ TEST(SignatureInterface, GivenMissingSlotsWhenConstOrRvalueCalledThenBadSignatur
     EXPECT_EQ(static_cast<NullaryInterface&>(wrapper)(), 3);
     EXPECT_THROW(static_cast<void>(static_cast<const NullaryInterface&>(wrapper)()), fw::bad_signature_call);
     EXPECT_THROW(static_cast<void>(static_cast<NullaryInterface&&>(wrapper)()), fw::bad_signature_call);
+
+    EXPECT_EQ(static_cast<const NullaryInterface&>(wrapper).try_call().status(), fw::try_call_status::SignatureMismatch);
+    EXPECT_EQ(static_cast<NullaryInterface&&>(wrapper).try_call().status(), fw::try_call_status::SignatureMismatch);
 }
 
 TEST(SignatureInterface, GivenConstCallableWhenConstInvokedThenConstSlotSucceeds)
@@ -64,6 +71,10 @@ TEST(SignatureInterface, GivenVoidSignatureWhenInvokedThenConstAndRvalueSlotsDis
     std::move(wrapper)();
 
     EXPECT_EQ(calls, 2);
+
+    fw::function_wrapper<void()> second = fw::test_support::InvocationCounter{ &calls };
+    EXPECT_TRUE(second.try_call());
+    EXPECT_EQ(calls, 3);
 }
 
 TEST(SignatureInterface, GivenNoexceptDeclaredSignatureWhenCalledThenTheMatchingBaseStillDispatches)

@@ -7,6 +7,7 @@ This document covers the complete public API of `fw`.
 ## Headers
 
 ```cpp
+#include <fw/call_result.hpp>                  // try_call_status, try_call_result<R>
 #include <fw/function_ref.hpp>                 // function_ref<R(Args...)>
 #include <fw/static_function.hpp>              // static_function<Sigs...>, static_function_ref<R(Args...)>
 #include <fw/function_wrapper.hpp>            // function_wrapper<Policy, Sigs...>, make_function_array
@@ -146,6 +147,27 @@ decltype(auto) call(CallArgs&&... args) &&;
 ```
 
 Identical to `operator()`. Provided for contexts where explicit call syntax is preferred over operator syntax.
+
+#### `try_call(...)`
+
+```cpp
+template <class... CallArgs>
+auto try_call(CallArgs&&... args) &;
+
+template <class... CallArgs>
+auto try_call(CallArgs&&... args) const&;
+
+template <class... CallArgs>
+auto try_call(CallArgs&&... args) &&;
+```
+
+Dispatches through the same compile-time signature selection as `call(...)`, but returns `fw::try_call_result<R>` instead of throwing `fw::bad_call` or `fw::bad_signature_call`.
+
+- `status() == fw::try_call_status::Success` means the call completed and a value is available.
+- `status() == fw::try_call_status::Empty` means the wrapper had no stored callable.
+- `status() == fw::try_call_status::SignatureMismatch` means the selected signature had no live slot for the current value category.
+
+If the bound target itself throws through a non-`noexcept` signature, that exception still propagates.
 
 ---
 
@@ -296,11 +318,13 @@ The class is copyable and movable as a cheap view type. `reset()`, `swap()`, `ha
 ### Invocation
 
 ```cpp
+auto try_call(Args... args) const;
 R operator()(Args... args) const;
 R call(Args... args) const;
 ```
 
-Dispatches directly to the bound callable. Empty invocation throws `fw::bad_call`.
+`try_call(...)` returns `fw::try_call_result<R>` and reports an empty reference as `fw::try_call_status::Empty`.
+`operator()` and `call(...)` dispatch directly to the bound callable and throw `fw::bad_call` on an empty reference.
 
 ### Member adapters
 
@@ -353,6 +377,7 @@ Copy construction and copy assignment are deleted.
 `move_only_function_wrapper` provides the same member surface as `function_wrapper` for:
 
 - `operator()` / `call(...)`
+- `try_call(...)`
 - `has_value()` / `operator bool`
 - comparison with `nullptr`
 - `reset()` / `swap()`
@@ -428,6 +453,38 @@ Requires at least one callable. Fails to compile if no callables are provided.
 ---
 
 ## Exception Types
+
+## `fw::try_call_status`
+
+```cpp
+enum class try_call_status : unsigned char
+{
+    Success,
+    Empty,
+    SignatureMismatch
+};
+```
+
+The status code returned by the library's non-throwing `try_call(...)` APIs.
+
+## `fw::try_call_result<R>`
+
+```cpp
+template <class R>
+class try_call_result;
+```
+
+Returned by `try_call(...)` on wrappers, refs, and static callables.
+
+Common observers:
+
+- `status()`
+- `has_value()`
+- `operator bool`
+- `value_ptr()`
+- `value()`
+
+`try_call_result<void>` reports status only.
 
 ### `fw::bad_call`
 

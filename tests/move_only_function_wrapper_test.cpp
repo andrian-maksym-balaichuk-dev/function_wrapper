@@ -74,6 +74,23 @@ TEST(MoveOnlyFunctionWrapper, GivenWrappersWhenIntrospectedThenDeclaredAndBoundS
     EXPECT_EQ(wrapper.bound_signatures(), (std::array<bool, 2>{ true, true }));
 }
 
+TEST(MoveOnlyFunctionWrapper, GivenTryCallWhenStateVariesThenStatusesReportEmptyAndSignatureMismatch)
+{
+    BinaryMoveOnlyWrapper empty;
+    const auto empty_result = empty.try_call(1, 2);
+    EXPECT_EQ(empty_result.status(), fw::try_call_status::Empty);
+    EXPECT_FALSE(empty_result);
+
+    fw::move_only_function_wrapper<int()> consume_once = fw::test_support::MoveOnlyConsumeOnce{ 9 };
+    const auto mismatch = static_cast<const fw::move_only_function_wrapper<int()>&>(consume_once).try_call();
+    EXPECT_EQ(mismatch.status(), fw::try_call_status::SignatureMismatch);
+    EXPECT_FALSE(mismatch);
+
+    auto success = std::move(consume_once).try_call();
+    ASSERT_TRUE(success);
+    EXPECT_EQ(success.value(), 9);
+}
+
 TEST(MoveOnlyFunctionWrapper, GivenLargeMoveOnlyCallableWhenMovedThenHeapStorageRemainsValid)
 {
     BinaryMoveOnlyWrapper wrapper = fw::test_support::LargeMoveOnlyAdder{ 5 };

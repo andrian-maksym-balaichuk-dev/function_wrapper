@@ -233,6 +233,18 @@ static_assert(decltype(sf)::contains_signature<int(int, int) noexcept>());
 static_assert(sf.has_bound_signature<int(int, int) noexcept>());
 ```
 
+`try_call(...)` is available on `function_wrapper`, `move_only_function_wrapper`, `function_ref`, `static_function`, `static_function_ref`, and the exact-signature interface bases. It returns `fw::try_call_result<R>` instead of throwing `fw::bad_call` or `fw::bad_signature_call`:
+
+```cpp
+fw::function_wrapper<int(int)> w;
+auto result = w.try_call(7);
+
+if (!result && result.status() == fw::try_call_status::Empty)
+{
+    // wrapper had no stored callable
+}
+```
+
 ### `fw::make_function_array`
 
 Builds a `std::array` of `function_wrapper` objects with a unified signature set deduced from all provided callables:
@@ -280,6 +292,7 @@ When a call could match more than one declared signature, `fw` applies a fixed p
 
 - A declared `noexcept` signature only accepts a target that is nothrow-invocable with that exact signature.
 - `function_wrapper`, `move_only_function_wrapper`, `function_ref`, and `static_function_ref` remain nullable. Empty-state calls still throw `fw::bad_call` or `fw::bad_signature_call`, so their public call operators are not themselves `noexcept`.
+- `try_call(...)` converts those library-generated empty/signature-mismatch failures into `fw::try_call_status` values. If the bound target itself throws through a non-`noexcept` signature, that exception still propagates.
 
 ---
 

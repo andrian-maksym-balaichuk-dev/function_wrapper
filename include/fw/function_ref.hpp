@@ -1,6 +1,7 @@
 #ifndef FW_FUNCTION_REF_HPP
 #define FW_FUNCTION_REF_HPP
 
+#include <fw/call_result.hpp>
 #include <fw/detail/concepts.hpp>
 #include <fw/exceptions.hpp>
 
@@ -174,6 +175,35 @@ public:
     }
 
     // ── invocation ───────────────────────────────────────────────────────────
+
+    try_call_result<R> try_call(Args... args) const noexcept(noexcept(mutable_thunk_(*this, std::forward<Args>(args)...)) && noexcept(const_thunk_(*this, std::forward<Args>(args)...)))
+    {
+        if (mutable_thunk_)
+        {
+            if constexpr (std::is_void_v<R>)
+            {
+                mutable_thunk_(*this, std::forward<Args>(args)...);
+                return try_call_result<void>::success();
+            }
+            else
+            {
+                return try_call_result<R>::success(mutable_thunk_(*this, std::forward<Args>(args)...));
+            }
+        }
+        if (const_thunk_)
+        {
+            if constexpr (std::is_void_v<R>)
+            {
+                const_thunk_(*this, std::forward<Args>(args)...);
+                return try_call_result<void>::success();
+            }
+            else
+            {
+                return try_call_result<R>::success(const_thunk_(*this, std::forward<Args>(args)...));
+            }
+        }
+        return try_call_result<R>::empty();
+    }
 
     R call(Args... args) const
     {
@@ -539,6 +569,35 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept
     {
         return has_value();
+    }
+
+    try_call_result<R> try_call(Args... args) const noexcept
+    {
+        if (mutable_thunk_)
+        {
+            if constexpr (std::is_void_v<R>)
+            {
+                mutable_thunk_(*this, std::forward<Args>(args)...);
+                return try_call_result<void>::success();
+            }
+            else
+            {
+                return try_call_result<R>::success(mutable_thunk_(*this, std::forward<Args>(args)...));
+            }
+        }
+        if (const_thunk_)
+        {
+            if constexpr (std::is_void_v<R>)
+            {
+                const_thunk_(*this, std::forward<Args>(args)...);
+                return try_call_result<void>::success();
+            }
+            else
+            {
+                return try_call_result<R>::success(const_thunk_(*this, std::forward<Args>(args)...));
+            }
+        }
+        return try_call_result<R>::empty();
     }
 
     R call(Args... args) const

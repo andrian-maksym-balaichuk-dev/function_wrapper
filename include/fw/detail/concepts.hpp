@@ -766,6 +766,12 @@ decltype(auto) invoke_signature_call(Base&& base, CallArgs&&... args) noexcept(n
     return signature_invoker<Sig>::invoke(std::forward<Base>(base), std::forward<CallArgs>(args)...);
 }
 
+template <class Sig, class Base, class... CallArgs>
+auto invoke_signature_try_call(Base&& base, CallArgs&&... args) noexcept(noexcept(std::forward<Base>(base).try_call(std::forward<CallArgs>(args)...)))
+{
+    return std::forward<Base>(base).try_call(std::forward<CallArgs>(args)...);
+}
+
 } // namespace fw::detail
 
 #endif // FW_DETAIL_CONCEPTS_HPP

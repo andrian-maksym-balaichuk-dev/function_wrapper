@@ -46,6 +46,7 @@ TEST(FunctionRef, GivenEmptyReferenceWhenObservedThenStateQueriesStayConsistent)
     EXPECT_FALSE(ref != nullptr);
     EXPECT_FALSE(nullptr != ref);
     EXPECT_THROW(static_cast<void>(ref(1, 2)), fw::bad_call);
+    EXPECT_EQ(ref.try_call(1, 2).status(), fw::try_call_status::Empty);
 
     ref = &fw::test_support::add;
     ASSERT_TRUE(ref.has_value());
@@ -115,6 +116,9 @@ TEST(FunctionRef, GivenMemberAdaptersWhenBoundThenFunctionsAndObjectsAreInvokedT
     EXPECT_EQ(mutable_member_ref(3), 12);
     EXPECT_EQ(const_member_ref(3), 10);
     EXPECT_EQ(member_object_ref(), 6);
+    auto member_result = member_object_ref.try_call();
+    ASSERT_TRUE(member_result);
+    EXPECT_EQ(member_result.value(), 6);
     member_object_ref() = 9;
     EXPECT_EQ(target.offset, 9);
     EXPECT_EQ(const_member_object_ref(), 7);

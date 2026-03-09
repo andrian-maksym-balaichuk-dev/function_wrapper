@@ -1,6 +1,7 @@
 #ifndef FW_STATIC_FUNCTION_HPP
 #define FW_STATIC_FUNCTION_HPP
 
+#include <fw/call_result.hpp>
 #include <fw/detail/concepts.hpp>
 #include <fw/exceptions.hpp>
 
@@ -118,6 +119,24 @@ public:
     }
 
     template <class... CallArgs>
+    constexpr auto try_call(CallArgs&&... args) &
+    {
+        return dispatch_try_call_(*this, std::forward<CallArgs>(args)...);
+    }
+
+    template <class... CallArgs>
+    constexpr auto try_call(CallArgs&&... args) const&
+    {
+        return dispatch_try_call_(*this, std::forward<CallArgs>(args)...);
+    }
+
+    template <class... CallArgs>
+    constexpr auto try_call(CallArgs&&... args) &&
+    {
+        return dispatch_try_call_(std::move(*this), std::forward<CallArgs>(args)...);
+    }
+
+    template <class... CallArgs>
     constexpr decltype(auto) call(CallArgs&&... args) &
     {
         return dispatch_call_(*this, std::forward<CallArgs>(args)...);
@@ -188,6 +207,22 @@ public:
 private:
     // Select the best declared signature for this argument list at compile time.
     template <class Self, class... CallArgs>
+    static constexpr auto dispatch_try_call_(Self&& self, CallArgs&&... args)
+    {
+        using best_match = detail::best_signature_t<detail::typelist<Sigs...>, CallArgs...>;
+
+        if constexpr (!best_match::found)
+        {
+            static_assert(best_match::found, "fw::static_function: no declared signature accepts these arguments.");
+        }
+        else
+        {
+            static_assert(!best_match::ambiguous, "fw::static_function: call is ambiguous across declared signatures.");
+            return std::forward<Self>(self).template try_invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+        }
+    }
+
+    template <class Self, class... CallArgs>
     static constexpr decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
     {
         using best_match = detail::best_signature_t<detail::typelist<Sigs...>, CallArgs...>;
@@ -201,6 +236,24 @@ private:
             static_assert(!best_match::ambiguous, "fw::static_function: call is ambiguous across declared signatures.");
             return std::forward<Self>(self).template invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
         }
+    }
+
+    template <class Sig, class... CallArgs>
+    constexpr auto try_invoke_signature_(CallArgs&&... args) &
+    {
+        return try_invoke_slot_<Sig>(std::forward<CallArgs>(args)...);
+    }
+
+    template <class Sig, class... CallArgs>
+    constexpr auto try_invoke_signature_(CallArgs&&... args) const&
+    {
+        return try_invoke_slot_<Sig>(std::forward<CallArgs>(args)...);
+    }
+
+    template <class Sig, class... CallArgs>
+    constexpr auto try_invoke_signature_(CallArgs&&... args) &&
+    {
+        return try_invoke_slot_<Sig>(std::forward<CallArgs>(args)...);
     }
 
     template <class Sig, class... CallArgs>
@@ -219,6 +272,25 @@ private:
     constexpr decltype(auto) invoke_signature_(CallArgs&&... args) &&
     {
         return invoke_slot_<Sig>(std::forward<CallArgs>(args)...);
+    }
+
+    template <class Sig, class... CallArgs>
+    constexpr auto try_invoke_slot_(CallArgs&&... args) const
+    {
+        const auto pointer = std::get<slot<Sig>>(m_slots).pointer;
+        if (!pointer)
+        {
+            return try_call_result<detail::signature_return_t<Sig>>::signature_mismatch();
+        }
+        if constexpr (std::is_void_v<detail::signature_return_t<Sig>>)
+        {
+            invoke_pointer_<Sig>(pointer, std::forward<CallArgs>(args)...);
+            return try_call_result<void>::success();
+        }
+        else
+        {
+            return try_call_result<detail::signature_return_t<Sig>>::success(invoke_pointer_<Sig>(pointer, std::forward<CallArgs>(args)...));
+        }
     }
 
     template <class Sig, class... CallArgs>
@@ -310,6 +382,23 @@ struct static_function_ref<R(Args...)>
         return has_value();
     }
 
+    constexpr try_call_result<R> try_call(Args... args) const noexcept(noexcept(m_pointer(std::forward<Args>(args)...)))
+    {
+        if (!m_pointer)
+        {
+            return try_call_result<R>::empty();
+        }
+        if constexpr (std::is_void_v<R>)
+        {
+            m_pointer(std::forward<Args>(args)...);
+            return try_call_result<void>::success();
+        }
+        else
+        {
+            return try_call_result<R>::success(m_pointer(std::forward<Args>(args)...));
+        }
+    }
+
     constexpr R operator()(Args... args) const
     {
         if (!m_pointer)
@@ -355,6 +444,23 @@ struct static_function_ref<R(Args...) noexcept>
     [[nodiscard]] constexpr explicit operator bool() const noexcept
     {
         return has_value();
+    }
+
+    constexpr try_call_result<R> try_call(Args... args) const noexcept
+    {
+        if (!m_pointer)
+        {
+            return try_call_result<R>::empty();
+        }
+        if constexpr (std::is_void_v<R>)
+        {
+            m_pointer(std::forward<Args>(args)...);
+            return try_call_result<void>::success();
+        }
+        else
+        {
+            return try_call_result<R>::success(m_pointer(std::forward<Args>(args)...));
+        }
     }
 
     constexpr R operator()(Args... args) const

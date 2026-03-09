@@ -96,6 +96,26 @@ TEST(FunctionWrapper, GivenWrappersWhenIntrospectedThenDeclaredAndBoundSignature
     EXPECT_EQ(wrapper.bound_signatures(), (std::array<bool, 2>{ true, false }));
 }
 
+TEST(FunctionWrapper, GivenTryCallWhenStateVariesThenResultsReportStatusWithoutLibraryExceptions)
+{
+    fw::function_wrapper<int(int, int)> empty;
+    const auto empty_result = empty.try_call(1, 2);
+    EXPECT_EQ(empty_result.status(), fw::try_call_status::Empty);
+    EXPECT_FALSE(empty_result);
+    EXPECT_EQ(empty_result.value_ptr(), nullptr);
+
+    fw::function_wrapper<int()> lvalue_only = fw::test_support::LvalueOnlyFunction{};
+    const auto mismatch_result = static_cast<const fw::function_wrapper<int()>&>(lvalue_only).try_call();
+    EXPECT_EQ(mismatch_result.status(), fw::try_call_status::SignatureMismatch);
+    EXPECT_FALSE(mismatch_result);
+
+    fw::function_wrapper<int&()> reference_wrapper = fw::test_support::ReferenceSource{};
+    auto reference_result = reference_wrapper.try_call();
+    ASSERT_TRUE(reference_result);
+    reference_result.value() = 12;
+    EXPECT_EQ(reference_wrapper.target<fw::test_support::ReferenceSource>()->value, 12);
+}
+
 TEST(FunctionWrapper, GivenStoredCallablesWhenQueriedThenTargetsAndTypesArePreserved)
 {
     fw::function_wrapper<int(int, int)> small = fw::test_support::add;
@@ -301,6 +321,29 @@ TEST(FunctionWrapper, GivenStaticFunctionWhenIntrospectedThenDeclaredAndBoundSlo
     EXPECT_FALSE(wrapper.has_bound_signature<double(double, double)>());
     EXPECT_FALSE(wrapper.has_bound_signature<void()>());
     EXPECT_EQ(wrapper.bound_signatures(), (std::array<bool, 2>{ true, false }));
+}
+
+TEST(FunctionWrapper, GivenStaticCallableViewsWhenTryCallIsUsedThenStatusMatchesTheBoundSlots)
+{
+    constexpr auto static_wrapper = [] {
+        fw::static_function<int(int, int), double(double, double)> result;
+        result.bind<int(int, int)>(fw::test_support::add);
+        return result;
+    }();
+
+    const auto success = static_wrapper.try_call(2, 3);
+    ASSERT_TRUE(success);
+    EXPECT_EQ(success.value(), 5);
+    EXPECT_EQ(success.status(), fw::try_call_status::Success);
+
+    const auto mismatch = static_wrapper.try_call(1.5, 2.0);
+    EXPECT_EQ(mismatch.status(), fw::try_call_status::SignatureMismatch);
+    EXPECT_FALSE(mismatch);
+
+    constexpr fw::static_function_ref<int(int, int)> empty_ref;
+    const auto empty_ref_result = empty_ref.try_call(1, 2);
+    EXPECT_EQ(empty_ref_result.status(), fw::try_call_status::Empty);
+    EXPECT_FALSE(empty_ref_result);
 }
 
 TEST(FunctionWrapper, GivenStaticFunctionRefWhenInvokedThenPointerStyleConstexprWrapperWorks)
