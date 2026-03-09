@@ -414,26 +414,29 @@ int main()
 
 ---
 
-## 14. Class Method Stored via Lambda
+## 14. Class Method Stored via `fw::member_ref`
 
-Free functions and member function pointers require a wrapping lambda. The wrapper stores the lambda by value.
+Use `fw::member_ref(object, &Type::member)` when the wrapper should call a member function or expose a member object without a hand-written lambda.
 
 ```cpp
+#include <fw/member_adapter.hpp>
 #include <fw/function_wrapper.hpp>
 
 struct Processor {
     int scale;
     int run(int x) const { return x * scale; }
+    int& current() { return scale; }
 };
 
 int main()
 {
     Processor p{3};
 
-    fw::function_wrapper<int(int)> w =
-        [&p](int x) { return p.run(x); };
+    fw::function_wrapper<int(int)> run = fw::member_ref(p, &Processor::run);
+    fw::function_wrapper<int&()> current = fw::member_ref(p, &Processor::current);
 
-    return w(7); // returns 21
+    current() = 4;
+    return run(7); // returns 28
 }
 ```
 

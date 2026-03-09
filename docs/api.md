@@ -9,6 +9,7 @@ This document covers the complete public API of `fw`.
 ```cpp
 #include <fw/call_result.hpp>                  // try_call_status, try_call_result<R>
 #include <fw/function_ref.hpp>                 // function_ref<R(Args...)>
+#include <fw/member_adapter.hpp>               // member_ref(object, member)
 #include <fw/static_function.hpp>              // static_function<Sigs...>, static_function_ref<R(Args...)>
 #include <fw/function_wrapper.hpp>            // function_wrapper<Policy, Sigs...>, make_function_array
 #include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper<Policy, Sigs...>, make_move_only_function_array
@@ -256,6 +257,16 @@ template <class T>
 ```
 
 Returns a pointer to the stored callable if its type is exactly `T`, otherwise `nullptr`.
+
+#### Member adapters
+
+```cpp
+auto bound = fw::member_ref(object, &Type::member_function);
+auto field = fw::member_ref(object, &Type::member_object);
+```
+
+`fw::member_ref(...)` returns a small non-owning callable adapter that stores an object pointer plus a member pointer.
+It can be passed directly to `function_wrapper`, `move_only_function_wrapper`, `make_function_array`, or used as a normal callable object.
 
 #### `contains_signature<Sig>()`
 

@@ -41,6 +41,8 @@ static_assert(k_static_add_ref_noexcept(3, 5) == 8);
 
 static_assert((std::is_same_v<typename decltype(fw::function_wrapper{ &fw::test_support::add_noexcept })::policy_type, fw::policy::default_policy>));
 static_assert((std::is_same_v<typename fw::function_wrapper<int(int, int)>::policy_type, fw::policy::default_policy>));
+static_assert((std::is_same_v<decltype(fw::member_ref(std::declval<fw::test_support::MemberAdapterTarget&>(), &fw::test_support::MemberAdapterTarget::scale)),
+                              fw::member_adapter<fw::test_support::MemberAdapterTarget, int (fw::test_support::MemberAdapterTarget::*)(int)>>));
 static_assert((fw::function_wrapper<int(int, int), double(double, double)>::contains_signature<int(int, int)>()));
 static_assert((!fw::function_wrapper<int(int, int), double(double, double)>::contains_signature<void()>()));
 static_assert((fw::static_function<int(int, int), double(double, double)>::contains_signature<double(double, double)>()));
@@ -136,6 +138,27 @@ TEST(FunctionWrapper, GivenStoredCallablesWhenQueriedThenTargetsAndTypesArePrese
     EXPECT_NE(const_small.target<int (*)(int, int)>(), nullptr);
     EXPECT_NE(const_large.target<fw::test_support::LargeAdder>(), nullptr);
     EXPECT_EQ(const_large.target<int (*)(int, int)>(), nullptr);
+}
+
+TEST(FunctionWrapper, GivenMemberAdaptersWhenStoredThenWrappersDoNotNeedLambdasForObjectBinding)
+{
+    fw::test_support::MemberAdapterTarget target{ .factor = 4, .offset = 6 };
+    const fw::test_support::MemberAdapterTarget const_target{ .factor = 5, .offset = 7 };
+
+    fw::function_wrapper<int(int)> member_wrapper = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::scale);
+    fw::function_wrapper<int(int)> const_member_wrapper = fw::member_ref(const_target, &fw::test_support::MemberAdapterTarget::scale_const);
+    fw::function_wrapper<int&()> member_object_wrapper = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::offset);
+    fw::function_wrapper<int(int) noexcept> noexcept_wrapper = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::scale_noexcept);
+
+    EXPECT_EQ(member_wrapper(3), 12);
+    EXPECT_EQ(const_member_wrapper(3), 10);
+    EXPECT_EQ(member_object_wrapper(), 6);
+    member_object_wrapper() = 9;
+    EXPECT_EQ(target.offset, 9);
+    EXPECT_EQ(noexcept_wrapper(2), 8);
+
+    auto deduced_wrapper = fw::function_wrapper{ fw::member_ref(target, &fw::test_support::MemberAdapterTarget::scale) };
+    EXPECT_EQ(deduced_wrapper(4), 16);
 }
 
 TEST(FunctionWrapper, GivenSupportedValueCategoriesWhenInvokedThenDispatchUsesMatchingSlots)

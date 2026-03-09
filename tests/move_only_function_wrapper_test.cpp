@@ -56,6 +56,18 @@ TEST(MoveOnlyFunctionWrapper, GivenMoveOnlyCallableWhenStoredThenTargetsAndTypes
     EXPECT_NE(const_wrapper.target<fw::test_support::MoveOnlyAdder>(), nullptr);
 }
 
+TEST(MoveOnlyFunctionWrapper, GivenMemberAdaptersWhenStoredThenMoveOnlyWrapperCanReuseTheSameBindingHelper)
+{
+    fw::test_support::MemberAdapterTarget target{ .factor = 3, .offset = 4 };
+
+    fw::move_only_function_wrapper<int(int)> member_wrapper = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::scale);
+    fw::move_only_function_wrapper<int&()> member_object_wrapper = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::offset);
+
+    EXPECT_EQ(member_wrapper(5), 15);
+    member_object_wrapper() = 11;
+    EXPECT_EQ(target.offset, 11);
+}
+
 TEST(MoveOnlyFunctionWrapper, GivenWrappersWhenIntrospectedThenDeclaredAndBoundSignaturesAreReported)
 {
     MixedMoveOnlyWrapper empty;

@@ -2,6 +2,7 @@
 #define FW_FUNCTION_WRAPPER_HPP
 
 #include <fw/detail/concepts.hpp>
+#include <fw/member_adapter.hpp>
 #include <fw/detail/signature_interface.hpp>
 #include <fw/static_function.hpp>
 #include <fw/detail/vtable.hpp>

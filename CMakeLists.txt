@@ -109,6 +109,7 @@ if(FW_BUILD_TESTS AND BUILD_TESTING)
     set(FW_COVERAGE_HEADERS
         ${FW_INCLUDE_DIR}/fw/function_ref.hpp
         ${FW_INCLUDE_DIR}/fw/function_wrapper.hpp
+        ${FW_INCLUDE_DIR}/fw/member_adapter.hpp
         ${FW_INCLUDE_DIR}/fw/move_only_function_wrapper.hpp
         ${FW_INCLUDE_DIR}/fw/call_result.hpp
         ${FW_INCLUDE_DIR}/fw/exceptions.hpp

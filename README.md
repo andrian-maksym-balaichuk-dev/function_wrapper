@@ -167,6 +167,7 @@ See [Integration Guide](docs/integration.md) for full details on each mode.
 
 ```cpp
 #include <fw/function_ref.hpp>                 // function_ref
+#include <fw/member_adapter.hpp>               // member_ref
 #include <fw/function_wrapper.hpp>            // function_wrapper, make_function_array
 #include <fw/move_only_function_wrapper.hpp>  // move_only_function_wrapper, make_move_only_function_array
 #include <fw/exceptions.hpp>                  // bad_call, bad_signature_call
@@ -244,6 +245,8 @@ if (!result && result.status() == fw::try_call_status::Empty)
     // wrapper had no stored callable
 }
 ```
+
+`fw::member_ref(object, &Type::member)` builds a small non-owning callable adapter for member functions and member objects, so owning wrappers can bind common method cases without a hand-written lambda.
 
 ### `fw::make_function_array`
 
