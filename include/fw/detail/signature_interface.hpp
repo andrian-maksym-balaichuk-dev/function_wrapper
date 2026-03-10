@@ -22,28 +22,59 @@ template <class Derived, class R, class... Args>
 struct signature_interface<Derived, R(Args...)>
 {
 private:
+    using entry_type = signature_vtable_entry<R(Args...)>;
+
+    struct dispatch_state
+    {
+        const entry_type* entry;
+        void* object;
+    };
+
+    struct const_dispatch_state
+    {
+        const entry_type* entry;
+        const void* object;
+    };
+
+    [[nodiscard]] static dispatch_state load_l_(Derived& self) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        return { vt ? &static_cast<const entry_type&>(*vt) : nullptr, self.object_ptr() };
+    }
+
+    [[nodiscard]] static const_dispatch_state load_cl_(const Derived& self) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        return { vt ? &static_cast<const entry_type&>(*vt) : nullptr, self.object_ptr() };
+    }
+
+    [[nodiscard]] static dispatch_state load_r_(Derived& self) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        return { vt ? &static_cast<const entry_type&>(*vt) : nullptr, self.object_ptr() };
+    }
+
     static try_call_result<R> try_dispatch_l_(Derived& self, Args... args) noexcept(noexcept(std::declval<typename signature_vtable_entry<R(Args...)>::lcall_t>()(
         self.object_ptr(),
         std::forward<Args>(args)...)))
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_l_(self);
+        if (!state.entry || !state.object)
         {
             return try_call_result<R>::empty();
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
-        if (!entry.lcall)
+        if (!state.entry->lcall)
         {
             return try_call_result<R>::signature_mismatch();
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return try_call_result<R>::success(entry.lcall(self.object_ptr(), std::forward<Args>(args)...));
+            return try_call_result<R>::success(state.entry->lcall(state.object, std::forward<Args>(args)...));
         }
         else
         {
-            entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->lcall(state.object, std::forward<Args>(args)...);
             return try_call_result<R>::success();
         }
     }
@@ -52,24 +83,23 @@ private:
         self.object_ptr(),
         std::forward<Args>(args)...)))
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_cl_(self);
+        if (!state.entry || !state.object)
         {
             return try_call_result<R>::empty();
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
-        if (!entry.clcall)
+        if (!state.entry->clcall)
         {
             return try_call_result<R>::signature_mismatch();
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return try_call_result<R>::success(entry.clcall(self.object_ptr(), std::forward<Args>(args)...));
+            return try_call_result<R>::success(state.entry->clcall(state.object, std::forward<Args>(args)...));
         }
         else
         {
-            entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->clcall(state.object, std::forward<Args>(args)...);
             return try_call_result<R>::success();
         }
     }
@@ -78,96 +108,92 @@ private:
         self.object_ptr(),
         std::forward<Args>(args)...)))
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_r_(self);
+        if (!state.entry || !state.object)
         {
             return try_call_result<R>::empty();
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
-        if (!entry.rcall)
+        if (!state.entry->rcall)
         {
             return try_call_result<R>::signature_mismatch();
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return try_call_result<R>::success(entry.rcall(self.object_ptr(), std::forward<Args>(args)...));
+            return try_call_result<R>::success(state.entry->rcall(state.object, std::forward<Args>(args)...));
         }
         else
         {
-            entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->rcall(state.object, std::forward<Args>(args)...);
             return try_call_result<R>::success();
         }
     }
 
     static R dispatch_l_(Derived& self, Args... args)
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_l_(self);
+        if (!state.entry || !state.object)
         {
             FW_UNLIKELY throw bad_call{};
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
-        if (!entry.lcall)
+        if (!state.entry->lcall)
         {
             FW_UNLIKELY throw bad_signature_call{};
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            return state.entry->lcall(state.object, std::forward<Args>(args)...);
         }
         else
         {
-            entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->lcall(state.object, std::forward<Args>(args)...);
             return;
         }
     }
 
     static R dispatch_cl_(const Derived& self, Args... args)
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_cl_(self);
+        if (!state.entry || !state.object)
         {
             FW_UNLIKELY throw bad_call{};
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
-        if (!entry.clcall)
+        if (!state.entry->clcall)
         {
             FW_UNLIKELY throw bad_signature_call{};
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            return state.entry->clcall(state.object, std::forward<Args>(args)...);
         }
         else
         {
-            entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->clcall(state.object, std::forward<Args>(args)...);
             return;
         }
     }
 
     static R dispatch_r_(Derived& self, Args... args)
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_r_(self);
+        if (!state.entry || !state.object)
         {
             FW_UNLIKELY throw bad_call{};
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...)>&>(*vt);
-        if (!entry.rcall)
+        if (!state.entry->rcall)
         {
             FW_UNLIKELY throw bad_signature_call{};
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            return state.entry->rcall(state.object, std::forward<Args>(args)...);
         }
         else
         {
-            entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->rcall(state.object, std::forward<Args>(args)...);
             return;
         }
     }
@@ -201,146 +227,172 @@ template <class Derived, class R, class... Args>
 struct signature_interface<Derived, R(Args...) noexcept>
 {
 private:
-    static try_call_result<R> try_dispatch_l_(Derived& self, Args... args) noexcept
+    using entry_type = signature_vtable_entry<R(Args...) noexcept>;
+
+    struct dispatch_state
+    {
+        const entry_type* entry;
+        void* object;
+    };
+
+    struct const_dispatch_state
+    {
+        const entry_type* entry;
+        const void* object;
+    };
+
+    [[nodiscard]] static dispatch_state load_l_(Derived& self) noexcept
     {
         const auto* vt = self.vtable_ptr();
-        if (!vt)
+        return { vt ? &static_cast<const entry_type&>(*vt) : nullptr, self.object_ptr() };
+    }
+
+    [[nodiscard]] static const_dispatch_state load_cl_(const Derived& self) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        return { vt ? &static_cast<const entry_type&>(*vt) : nullptr, self.object_ptr() };
+    }
+
+    [[nodiscard]] static dispatch_state load_r_(Derived& self) noexcept
+    {
+        const auto* vt = self.vtable_ptr();
+        return { vt ? &static_cast<const entry_type&>(*vt) : nullptr, self.object_ptr() };
+    }
+
+    static try_call_result<R> try_dispatch_l_(Derived& self, Args... args) noexcept
+    {
+        const auto state = load_l_(self);
+        if (!state.entry || !state.object)
         {
             return try_call_result<R>::empty();
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
-        if (!entry.lcall)
+        if (!state.entry->lcall)
         {
             return try_call_result<R>::signature_mismatch();
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return try_call_result<R>::success(entry.lcall(self.object_ptr(), std::forward<Args>(args)...));
+            return try_call_result<R>::success(state.entry->lcall(state.object, std::forward<Args>(args)...));
         }
         else
         {
-            entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->lcall(state.object, std::forward<Args>(args)...);
             return try_call_result<R>::success();
         }
     }
 
     static try_call_result<R> try_dispatch_cl_(const Derived& self, Args... args) noexcept
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_cl_(self);
+        if (!state.entry || !state.object)
         {
             return try_call_result<R>::empty();
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
-        if (!entry.clcall)
+        if (!state.entry->clcall)
         {
             return try_call_result<R>::signature_mismatch();
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return try_call_result<R>::success(entry.clcall(self.object_ptr(), std::forward<Args>(args)...));
+            return try_call_result<R>::success(state.entry->clcall(state.object, std::forward<Args>(args)...));
         }
         else
         {
-            entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->clcall(state.object, std::forward<Args>(args)...);
             return try_call_result<R>::success();
         }
     }
 
     static try_call_result<R> try_dispatch_r_(Derived& self, Args... args) noexcept
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_r_(self);
+        if (!state.entry || !state.object)
         {
             return try_call_result<R>::empty();
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
-        if (!entry.rcall)
+        if (!state.entry->rcall)
         {
             return try_call_result<R>::signature_mismatch();
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return try_call_result<R>::success(entry.rcall(self.object_ptr(), std::forward<Args>(args)...));
+            return try_call_result<R>::success(state.entry->rcall(state.object, std::forward<Args>(args)...));
         }
         else
         {
-            entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->rcall(state.object, std::forward<Args>(args)...);
             return try_call_result<R>::success();
         }
     }
 
     static R dispatch_l_(Derived& self, Args... args)
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_l_(self);
+        if (!state.entry || !state.object)
         {
             FW_UNLIKELY throw bad_call{};
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
-        if (!entry.lcall)
+        if (!state.entry->lcall)
         {
             FW_UNLIKELY throw bad_signature_call{};
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            return state.entry->lcall(state.object, std::forward<Args>(args)...);
         }
         else
         {
-            entry.lcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->lcall(state.object, std::forward<Args>(args)...);
             return;
         }
     }
 
     static R dispatch_cl_(const Derived& self, Args... args)
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_cl_(self);
+        if (!state.entry || !state.object)
         {
             FW_UNLIKELY throw bad_call{};
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
-        if (!entry.clcall)
+        if (!state.entry->clcall)
         {
             FW_UNLIKELY throw bad_signature_call{};
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            return state.entry->clcall(state.object, std::forward<Args>(args)...);
         }
         else
         {
-            entry.clcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->clcall(state.object, std::forward<Args>(args)...);
             return;
         }
     }
 
     static R dispatch_r_(Derived& self, Args... args)
     {
-        const auto* vt = self.vtable_ptr();
-        if (!vt)
+        const auto state = load_r_(self);
+        if (!state.entry || !state.object)
         {
             FW_UNLIKELY throw bad_call{};
         }
 
-        const auto& entry = static_cast<const signature_vtable_entry<R(Args...) noexcept>&>(*vt);
-        if (!entry.rcall)
+        if (!state.entry->rcall)
         {
             FW_UNLIKELY throw bad_signature_call{};
         }
         if constexpr (!std::is_void_v<R>)
         {
-            return entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            return state.entry->rcall(state.object, std::forward<Args>(args)...);
         }
         else
         {
-            entry.rcall(self.object_ptr(), std::forward<Args>(args)...);
+            state.entry->rcall(state.object, std::forward<Args>(args)...);
             return;
         }
     }

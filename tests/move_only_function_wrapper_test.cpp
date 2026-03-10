@@ -103,6 +103,19 @@ TEST(MoveOnlyFunctionWrapper, GivenTryCallWhenStateVariesThenStatusesReportEmpty
     EXPECT_EQ(success.value(), 9);
 }
 
+TEST(MoveOnlyFunctionWrapper, GivenSingleSignatureWrapperWhenCalledThenConvertibleArgumentsStillUseTheFastPath)
+{
+    fw::move_only_function_wrapper<int(int)> wrapper =
+        [bias = std::make_unique<int>(3)](int value) { return value + *bias; };
+
+    static_assert(std::is_same_v<decltype(wrapper(short{ 4 })), int>);
+    EXPECT_EQ(wrapper(short{ 4 }), 7);
+
+    const auto result = wrapper.try_call(short{ 5 });
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result.value(), 8);
+}
+
 TEST(MoveOnlyFunctionWrapper, GivenLargeMoveOnlyCallableWhenMovedThenHeapStorageRemainsValid)
 {
     BinaryMoveOnlyWrapper wrapper = fw::test_support::LargeMoveOnlyAdder{ 5 };
@@ -113,6 +126,24 @@ TEST(MoveOnlyFunctionWrapper, GivenLargeMoveOnlyCallableWhenMovedThenHeapStorage
     EXPECT_FALSE(wrapper.has_value());
     ASSERT_NE(moved.target<fw::test_support::LargeMoveOnlyAdder>(), nullptr);
     EXPECT_EQ(moved(6, 7), 18);
+}
+
+TEST(MoveOnlyFunctionWrapper, GivenTrivialSmallCallablesWhenLifecycleRunsThenMoveAndResetUseTheFastPath)
+{
+    fw::move_only_function_wrapper<int(int)> wrapper = fw::test_support::TrivialIncrement{ 5 };
+    EXPECT_EQ(wrapper(2), 7);
+    EXPECT_NE(wrapper.target<fw::test_support::TrivialIncrement>(), nullptr);
+
+    fw::move_only_function_wrapper<int(int)> moved = std::move(wrapper);
+    EXPECT_FALSE(wrapper.has_value());
+    EXPECT_EQ(moved(3), 8);
+    EXPECT_NE(moved.target<fw::test_support::TrivialIncrement>(), nullptr);
+
+    moved.reset();
+    EXPECT_FALSE(moved.has_value());
+
+    moved = [bias = std::make_unique<int>(4)](int value) { return value + *bias; };
+    EXPECT_EQ(moved(1), 5);
 }
 
 TEST(MoveOnlyFunctionWrapper, GivenConsumeOnceCallableWhenInvokedThenOnlyRvalueDispatchSucceeds)

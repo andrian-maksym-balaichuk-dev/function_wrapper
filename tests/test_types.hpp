@@ -43,6 +43,17 @@ struct LargeAdder
     }
 };
 
+struct LargeUnaryIncrement
+{
+    std::array<int, 64> padding{};
+    int delta{ 1 };
+
+    int operator()(int value) const
+    {
+        return value + delta + padding[0];
+    }
+};
+
 struct ConsumeOnce
 {
     int value{ 7 };
@@ -274,6 +285,31 @@ struct NothrowIncrement
 struct ThrowingIncrement
 {
     int delta{ 1 };
+
+    int operator()(int value) const
+    {
+        return value + delta;
+    }
+};
+
+struct TrivialIncrement
+{
+    int delta{ 1 };
+
+    int operator()(int value) const
+    {
+        return value + delta;
+    }
+};
+
+struct SmallNonTrivialIncrement
+{
+    int delta{ 1 };
+
+    SmallNonTrivialIncrement() = default;
+    explicit SmallNonTrivialIncrement(int value) noexcept : delta(value) {}
+    SmallNonTrivialIncrement(const SmallNonTrivialIncrement& other) noexcept : delta(other.delta) {}
+    SmallNonTrivialIncrement& operator=(const SmallNonTrivialIncrement&) = default;
 
     int operator()(int value) const
     {

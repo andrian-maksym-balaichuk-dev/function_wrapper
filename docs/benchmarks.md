@@ -67,12 +67,12 @@ They are included as one reference point only. Treat them as machine-specific.
 
 | Benchmark | ns/op |
 | --- | ---: |
-| direct lambda | 0.98 |
-| function pointer | 1.06 |
-| `std::function` | 1.04 |
-| `fw::function_wrapper` | 1.24 |
-| `fw::move_only_function_wrapper` | 1.24 |
-| `fw::function_ref` | 1.06 |
+| direct lambda | 1.04 |
+| function pointer | 1.07 |
+| `std::function` | 1.06 |
+| `fw::function_wrapper` | 1.08 |
+| `fw::move_only_function_wrapper` | 1.08 |
+| `fw::function_ref` | 1.07 |
 | `simple_function_ref` | 1.06 |
 
 ### Large callable invocation
@@ -80,31 +80,31 @@ They are included as one reference point only. Treat them as machine-specific.
 | Benchmark | ns/op |
 | --- | ---: |
 | `std::function` large | 1.08 |
-| `fw::function_wrapper` large | 1.34 |
-| `fw::move_only_function_wrapper` large | 1.31 |
+| `fw::function_wrapper` large | 1.09 |
+| `fw::move_only_function_wrapper` large | 1.08 |
 
 ### Small callable construction + call
 
 | Benchmark | ns/op |
 | --- | ---: |
-| `std::function` small ctor+call | 1.49 |
-| `fw::function_wrapper` small ctor+call | 2.23 |
-| `fw::move_only_wrapper` small ctor+call | 2.30 |
+| `std::function` small ctor+call | 1.50 |
+| `fw::function_wrapper` small ctor+call | 1.49 |
+| `fw::move_only_wrapper` small ctor+call | 1.49 |
 
 ### Move-only construction + call
 
 | Benchmark | ns/op |
 | --- | ---: |
-| `fw::move_only_wrapper` move-only ctor+call | 19.30 |
-| `fw::move_only_wrapper` large move-only | 38.62 |
+| `fw::move_only_wrapper` move-only ctor+call | 19.03 |
+| `fw::move_only_wrapper` large move-only | 39.27 |
 
 ### Member adapter invocation
 
 | Benchmark | ns/op |
 | --- | ---: |
 | `std::function` member via lambda | 1.04 |
-| `fw::function_wrapper` member_ref | 1.50 |
-| direct `fw::member_ref` | 1.02 |
+| `fw::function_wrapper` member_ref | 1.49 |
+| direct `fw::member_ref` | 1.03 |
 
 ## Notes
 

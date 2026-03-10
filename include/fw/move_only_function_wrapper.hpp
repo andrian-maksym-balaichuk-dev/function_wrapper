@@ -34,6 +34,7 @@ public:
     using self_type = move_only_function_wrapper;
     using policy_type = typename argument_traits::policy;
     using signatures_type = typename argument_traits::signatures;
+    using single_signature_type = detail::tl_front_or_t<signatures_type, void()>;
     using storage_type = typename argument_traits::template apply<detail::wrapper_storage>;
     using vtable_type = typename argument_traits::template apply<detail::wrapper_vtable>;
 
@@ -60,7 +61,11 @@ public:
 
     move_only_function_wrapper(move_only_function_wrapper&& other) noexcept
     {
-        if (other.storage_.vt)
+        if (other.uses_trivial_small_relocate_())
+        {
+            detail::move_trivial_small_storage(storage_, other.storage_);
+        }
+        else if (other.storage_.vt)
         {
             other.storage_.vt->move(storage_, other.storage_);
         }
@@ -72,7 +77,11 @@ public:
         {
             reset();
 
-            if (rhs.storage_.vt)
+            if (rhs.uses_trivial_small_relocate_())
+            {
+                detail::move_trivial_small_storage(storage_, rhs.storage_);
+            }
+            else if (rhs.storage_.vt)
             {
                 rhs.storage_.vt->move(storage_, rhs.storage_);
             }
@@ -205,7 +214,7 @@ public:
         {
             return nullptr;
         }
-        return static_cast<T*>(storage_.vt->get_ptr(storage_));
+        return static_cast<T*>(detail::storage_ptr(storage_));
     }
 
     template <class T>
@@ -215,7 +224,7 @@ public:
         {
             return nullptr;
         }
-        return static_cast<const T*>(storage_.vt->get_cptr(storage_));
+        return static_cast<const T*>(detail::storage_ptr(storage_));
     }
 
     [[nodiscard]] const vtable_type* vtable_ptr() const noexcept
@@ -225,17 +234,21 @@ public:
 
     [[nodiscard]] void* object_ptr() noexcept
     {
-        return storage_.vt ? storage_.vt->get_ptr(storage_) : nullptr;
+        return detail::storage_ptr(storage_);
     }
 
     [[nodiscard]] const void* object_ptr() const noexcept
     {
-        return storage_.vt ? storage_.vt->get_cptr(storage_) : nullptr;
+        return detail::storage_ptr(storage_);
     }
 
     void reset() noexcept
     {
-        if (storage_.vt)
+        if (uses_trivial_small_destroy_())
+        {
+            detail::destroy_trivial_small_storage(storage_);
+        }
+        else if (storage_.vt)
         {
             storage_.vt->destroy(storage_);
         }
@@ -296,35 +309,59 @@ private:
         return std::array<bool, sizeof...(DeclaredSigs)>{ has_bound_signature<DeclaredSigs>()... };
     }
 
+    [[nodiscard]] bool uses_trivial_small_destroy_() const noexcept
+    {
+        return storage_.kind == detail::storage_kind::Small && storage_.vt && storage_.vt->has_trivial_small_destroy;
+    }
+
+    [[nodiscard]] bool uses_trivial_small_relocate_() const noexcept
+    {
+        return storage_.kind == detail::storage_kind::Small && storage_.vt && storage_.vt->has_trivial_small_relocate;
+    }
+
     template <class Self, class... CallArgs>
     static auto dispatch_try_call_(Self&& self, CallArgs&&... args)
     {
-        using best_match = detail::best_signature_t<signatures_type, CallArgs...>;
-
-        if constexpr (!best_match::found)
+        if constexpr (detail::tl_size_v<signatures_type> == 1)
         {
-            static_assert(best_match::found, "fw::move_only_function_wrapper: no declared signature accepts these arguments.");
+            return std::forward<Self>(self).template try_invoke_signature_<single_signature_type>(std::forward<CallArgs>(args)...);
         }
         else
         {
-            static_assert(!best_match::ambiguous, "fw::move_only_function_wrapper: call is ambiguous across declared signatures.");
-            return std::forward<Self>(self).template try_invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            using best_match = detail::best_signature_t<signatures_type, CallArgs...>;
+
+            if constexpr (!best_match::found)
+            {
+                static_assert(best_match::found, "fw::move_only_function_wrapper: no declared signature accepts these arguments.");
+            }
+            else
+            {
+                static_assert(!best_match::ambiguous, "fw::move_only_function_wrapper: call is ambiguous across declared signatures.");
+                return std::forward<Self>(self).template try_invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            }
         }
     }
 
     template <class Self, class... CallArgs>
     static decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
     {
-        using best_match = detail::best_signature_t<signatures_type, CallArgs...>;
-
-        if constexpr (!best_match::found)
+        if constexpr (detail::tl_size_v<signatures_type> == 1)
         {
-            static_assert(best_match::found, "fw::move_only_function_wrapper: no declared signature accepts these arguments.");
+            return std::forward<Self>(self).template invoke_signature_<single_signature_type>(std::forward<CallArgs>(args)...);
         }
         else
         {
-            static_assert(!best_match::ambiguous, "fw::move_only_function_wrapper: call is ambiguous across declared signatures.");
-            return std::forward<Self>(self).template invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            using best_match = detail::best_signature_t<signatures_type, CallArgs...>;
+
+            if constexpr (!best_match::found)
+            {
+                static_assert(best_match::found, "fw::move_only_function_wrapper: no declared signature accepts these arguments.");
+            }
+            else
+            {
+                static_assert(!best_match::ambiguous, "fw::move_only_function_wrapper: call is ambiguous across declared signatures.");
+                return std::forward<Self>(self).template invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            }
         }
     }
 
@@ -374,6 +411,8 @@ private:
     void assign(F&& f)
     {
         using stored_type = std::decay_t<F>;
+        using resolved_vtable = typename detail::vtable_instance_from_list<stored_type, policy_type, signatures_type>::type;
+        const auto* vt = resolved_vtable::get();
 
         static_assert(std::is_move_constructible_v<stored_type>, "fw::move_only_function_wrapper requires a move-constructible callable.");
         static_assert(
@@ -382,16 +421,12 @@ private:
 
         if constexpr (detail::fits_in_sbo_v<policy_type, stored_type>)
         {
-            detail::fw_construct<stored_type>(storage_.payload.sbo, std::forward<F>(f));
-            storage_.kind = detail::storage_kind::Small;
+            detail::emplace_small_storage<stored_type>(storage_, vt, std::forward<F>(f));
         }
         else
         {
-            storage_.payload.heap = new stored_type(std::forward<F>(f));
-            storage_.kind = detail::storage_kind::Heap;
+            detail::emplace_heap_storage<stored_type>(storage_, vt, std::forward<F>(f));
         }
-        using resolved_vtable = typename detail::vtable_instance_from_list<stored_type, policy_type, signatures_type>::type;
-        storage_.vt = resolved_vtable::get();
     }
 
     storage_type storage_{};

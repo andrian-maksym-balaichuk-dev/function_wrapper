@@ -369,6 +369,33 @@ struct tl_size<typelist<Ts...>> : std::integral_constant<std::size_t, sizeof...(
 template <class TL>
 inline constexpr std::size_t tl_size_v = tl_size<TL>::value;
 
+template <class TL>
+struct tl_front;
+
+template <class T, class... Ts>
+struct tl_front<typelist<T, Ts...>>
+{
+    using type = T;
+};
+
+template <class TL>
+using tl_front_t = typename tl_front<TL>::type;
+
+template <class TL, class Default>
+struct tl_front_or
+{
+    using type = Default;
+};
+
+template <class T, class... Ts, class Default>
+struct tl_front_or<typelist<T, Ts...>, Default>
+{
+    using type = T;
+};
+
+template <class TL, class Default>
+using tl_front_or_t = typename tl_front_or<TL, Default>::type;
+
 template <class... Ts>
 struct all_same : std::true_type
 {};

@@ -10,6 +10,8 @@ using SmallStorage = fw::detail::wrapper_storage<fw::policy::default_policy, int
 using SmallVTable = fw::detail::vtable_instance<int (*)(int, int), fw::policy::default_policy, int(int, int)>;
 using HeapVTable = fw::detail::vtable_instance<fw::test_support::LargeAdder, fw::policy::default_policy, int(int, int)>;
 using MoveOnlyVTable = fw::detail::vtable_instance<fw::test_support::MoveOnlyAdder, fw::policy::default_policy, int(int, int)>;
+using TrivialUnaryVTable = fw::detail::vtable_instance<fw::test_support::TrivialIncrement, fw::policy::default_policy, int(int)>;
+using NonTrivialUnaryVTable = fw::detail::vtable_instance<fw::test_support::SmallNonTrivialIncrement, fw::policy::default_policy, int(int)>;
 using VoidStorage = fw::detail::wrapper_storage<fw::policy::default_policy, void()>;
 using VoidVTable = fw::detail::vtable_instance<fw::test_support::InvocationCounter, fw::policy::default_policy, void()>;
 using NoexceptStorage = fw::detail::wrapper_storage<fw::policy::default_policy, int(int, int) noexcept>;
@@ -66,6 +68,25 @@ TEST(VTable, GivenNoexceptSignatureWhenEntryIsBuiltThenSlotsUseNoexceptThunks)
     EXPECT_NE(noexcept_entry.rcall, nullptr);
 }
 
+TEST(VTable, GivenStoredTypesWhenLifecycleFlagsAreBuiltThenTrivialSmallMetadataMatchesTheirTraits)
+{
+    const auto* trivial_table = TrivialUnaryVTable::get();
+    const auto* nontrivial_table = NonTrivialUnaryVTable::get();
+    const auto* heap_table = HeapVTable::get();
+    const auto* move_only_table = MoveOnlyVTable::get();
+
+    EXPECT_TRUE(trivial_table->has_trivial_small_destroy);
+    EXPECT_TRUE(trivial_table->has_trivial_small_relocate);
+
+    EXPECT_TRUE(nontrivial_table->has_trivial_small_destroy);
+    EXPECT_FALSE(nontrivial_table->has_trivial_small_relocate);
+
+    EXPECT_FALSE(heap_table->has_trivial_small_destroy);
+    EXPECT_FALSE(heap_table->has_trivial_small_relocate);
+    EXPECT_FALSE(move_only_table->has_trivial_small_destroy);
+    EXPECT_FALSE(move_only_table->has_trivial_small_relocate);
+}
+
 TEST(VTable, GivenMoveOnlyStoredTypeWhenVTableIsBuiltThenCopyThunkIsNullAndMoveStillWorks)
 {
     SmallStorage source{};
@@ -83,11 +104,32 @@ TEST(VTable, GivenMoveOnlyStoredTypeWhenVTableIsBuiltThenCopyThunkIsNullAndMoveS
 
     EXPECT_FALSE(source.vt);
     EXPECT_EQ(source.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(entry.lcall(MoveOnlyVTable::get_ptr(moved), 2, 3), 9);
+    EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(moved), 2, 3), 9);
 
     MoveOnlyVTable::destroy(moved);
     EXPECT_EQ(moved.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(moved.vt, nullptr);
+}
+
+TEST(VTable, GivenStorageKindsWhenPointerHelpersAreUsedThenObjectAddressesMatchThePayload)
+{
+    SmallStorage empty{};
+    EXPECT_EQ(fw::detail::storage_ptr(empty), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(empty)), nullptr);
+
+    SmallStorage small{};
+    fw::detail::fw_construct<int (*)(int, int)>(small.payload.sbo, &fw::test_support::add);
+    small.kind = fw::detail::storage_kind::Small;
+    EXPECT_EQ(fw::detail::storage_ptr(small), static_cast<void*>(small.payload.sbo));
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(small)), static_cast<const void*>(small.payload.sbo));
+    SmallVTable::destroy(small);
+
+    SmallStorage heap{};
+    heap.payload.heap = new fw::test_support::LargeAdder{};
+    heap.kind = fw::detail::storage_kind::Heap;
+    EXPECT_EQ(fw::detail::storage_ptr(heap), heap.payload.heap);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(heap)), heap.payload.heap);
+    HeapVTable::destroy(heap);
 }
 
 TEST(VTable, GivenSmallStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsValid)
@@ -105,10 +147,10 @@ TEST(VTable, GivenSmallStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVal
     EXPECT_EQ(empty_move.vt, nullptr);
     EXPECT_EQ(empty_source.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(empty_source.vt, nullptr);
-    EXPECT_EQ(SmallVTable::get_ptr(empty_copy), nullptr);
-    EXPECT_EQ(SmallVTable::get_cptr(empty_copy), nullptr);
-    EXPECT_EQ(SmallVTable::get_ptr(empty_move), nullptr);
-    EXPECT_EQ(SmallVTable::get_cptr(empty_move), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(empty_copy), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(empty_copy)), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(empty_move), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(empty_move)), nullptr);
 
     SmallStorage source{};
     const auto* table = SmallVTable::get();
@@ -118,35 +160,35 @@ TEST(VTable, GivenSmallStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVal
     source.kind = fw::detail::storage_kind::Small;
     source.vt = table;
 
-    EXPECT_NE(SmallVTable::get_ptr(source), nullptr);
-    EXPECT_NE(SmallVTable::get_cptr(source), nullptr);
-    EXPECT_EQ(entry.lcall(SmallVTable::get_ptr(source), 1, 2), 3);
-    EXPECT_EQ(entry.clcall(SmallVTable::get_cptr(source), 2, 3), 5);
-    EXPECT_EQ(entry.rcall(SmallVTable::get_ptr(source), 3, 4), 7);
+    EXPECT_NE(fw::detail::storage_ptr(source), nullptr);
+    EXPECT_NE(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
+    EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(source), 1, 2), 3);
+    EXPECT_EQ(entry.clcall(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), 2, 3), 5);
+    EXPECT_EQ(entry.rcall(fw::detail::storage_ptr(source), 3, 4), 7);
 
     SmallStorage copied{};
     SmallVTable::copy(copied, source);
-    EXPECT_EQ(entry.clcall(SmallVTable::get_cptr(copied), 4, 5), 9);
+    EXPECT_EQ(entry.clcall(fw::detail::storage_ptr(static_cast<const SmallStorage&>(copied)), 4, 5), 9);
 
     SmallStorage moved{};
     SmallVTable::move(moved, copied);
-    EXPECT_EQ(entry.lcall(SmallVTable::get_ptr(moved), 5, 6), 11);
+    EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(moved), 5, 6), 11);
     EXPECT_EQ(copied.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(copied.vt, nullptr);
-    EXPECT_EQ(SmallVTable::get_ptr(copied), nullptr);
-    EXPECT_EQ(SmallVTable::get_cptr(copied), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(copied), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(copied)), nullptr);
 
     SmallVTable::destroy(source);
     SmallVTable::destroy(moved);
 
     EXPECT_EQ(source.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(source.vt, nullptr);
-    EXPECT_EQ(SmallVTable::get_ptr(source), nullptr);
-    EXPECT_EQ(SmallVTable::get_cptr(source), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(source), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
     EXPECT_EQ(moved.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(moved.vt, nullptr);
-    EXPECT_EQ(SmallVTable::get_ptr(moved), nullptr);
-    EXPECT_EQ(SmallVTable::get_cptr(moved), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(moved), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(moved)), nullptr);
 }
 
 TEST(VTable, GivenHeapStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsValid)
@@ -159,19 +201,19 @@ TEST(VTable, GivenHeapStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVali
     source.kind = fw::detail::storage_kind::Heap;
     source.vt = table;
 
-    EXPECT_NE(HeapVTable::get_ptr(source), nullptr);
-    EXPECT_NE(HeapVTable::get_cptr(source), nullptr);
-    EXPECT_EQ(entry.lcall(HeapVTable::get_ptr(source), 1, 2), 3);
-    EXPECT_EQ(entry.clcall(HeapVTable::get_cptr(source), 2, 3), 5);
-    EXPECT_EQ(entry.rcall(HeapVTable::get_ptr(source), 3, 4), 7);
+    EXPECT_NE(fw::detail::storage_ptr(source), nullptr);
+    EXPECT_NE(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
+    EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(source), 1, 2), 3);
+    EXPECT_EQ(entry.clcall(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), 2, 3), 5);
+    EXPECT_EQ(entry.rcall(fw::detail::storage_ptr(source), 3, 4), 7);
 
     SmallStorage copied{};
     HeapVTable::copy(copied, source);
-    EXPECT_EQ(entry.clcall(HeapVTable::get_cptr(copied), 4, 5), 9);
+    EXPECT_EQ(entry.clcall(fw::detail::storage_ptr(static_cast<const SmallStorage&>(copied)), 4, 5), 9);
 
     SmallStorage moved{};
     HeapVTable::move(moved, copied);
-    EXPECT_EQ(entry.lcall(HeapVTable::get_ptr(moved), 5, 6), 11);
+    EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(moved), 5, 6), 11);
     EXPECT_EQ(copied.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(copied.vt, nullptr);
     EXPECT_EQ(copied.payload.heap, nullptr);
@@ -182,13 +224,13 @@ TEST(VTable, GivenHeapStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVali
     EXPECT_EQ(source.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(source.vt, nullptr);
     EXPECT_EQ(source.payload.heap, nullptr);
-    EXPECT_EQ(HeapVTable::get_ptr(source), nullptr);
-    EXPECT_EQ(HeapVTable::get_cptr(source), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(source), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
     EXPECT_EQ(moved.kind, fw::detail::storage_kind::Empty);
     EXPECT_EQ(moved.vt, nullptr);
     EXPECT_EQ(moved.payload.heap, nullptr);
-    EXPECT_EQ(HeapVTable::get_ptr(moved), nullptr);
-    EXPECT_EQ(HeapVTable::get_cptr(moved), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(moved), nullptr);
+    EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(moved)), nullptr);
 }
 
 TEST(VTable, GivenVoidCallableWhenInvokedThenAllSlotsExecuteTheStoredObject)
@@ -202,9 +244,9 @@ TEST(VTable, GivenVoidCallableWhenInvokedThenAllSlotsExecuteTheStoredObject)
     storage.kind = fw::detail::storage_kind::Small;
     storage.vt = table;
 
-    entry.lcall(VoidVTable::get_ptr(storage));
-    entry.clcall(VoidVTable::get_cptr(storage));
-    entry.rcall(VoidVTable::get_ptr(storage));
+    entry.lcall(fw::detail::storage_ptr(storage));
+    entry.clcall(fw::detail::storage_ptr(static_cast<const VoidStorage&>(storage)));
+    entry.rcall(fw::detail::storage_ptr(storage));
 
     EXPECT_EQ(calls, 3);
 
@@ -223,9 +265,9 @@ TEST(VTable, GivenNoexceptStorageWhenInvokedThenAllSlotsRemainCallable)
     storage.kind = fw::detail::storage_kind::Small;
     storage.vt = table;
 
-    EXPECT_EQ(entry.lcall(NoexceptVTable::get_ptr(storage), 1, 2), 3);
-    EXPECT_EQ(entry.clcall(NoexceptVTable::get_cptr(storage), 2, 3), 5);
-    EXPECT_EQ(entry.rcall(NoexceptVTable::get_ptr(storage), 3, 4), 7);
+    EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(storage), 1, 2), 3);
+    EXPECT_EQ(entry.clcall(fw::detail::storage_ptr(static_cast<const NoexceptStorage&>(storage)), 2, 3), 5);
+    EXPECT_EQ(entry.rcall(fw::detail::storage_ptr(storage), 3, 4), 7);
 
     NoexceptVTable::destroy(storage);
     EXPECT_EQ(storage.kind, fw::detail::storage_kind::Empty);

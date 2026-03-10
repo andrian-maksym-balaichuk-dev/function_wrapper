@@ -118,6 +118,18 @@ TEST(FunctionWrapper, GivenTryCallWhenStateVariesThenResultsReportStatusWithoutL
     EXPECT_EQ(reference_wrapper.target<fw::test_support::ReferenceSource>()->value, 12);
 }
 
+TEST(FunctionWrapper, GivenSingleSignatureWrapperWhenCalledThenConvertibleArgumentsStillUseTheFastPath)
+{
+    fw::function_wrapper<int(int)> wrapper = fw::test_support::ConstIncrement{ 2 };
+
+    static_assert(std::is_same_v<decltype(wrapper(short{ 5 })), int>);
+    EXPECT_EQ(wrapper(short{ 5 }), 7);
+
+    const auto result = wrapper.try_call(short{ 6 });
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result.value(), 8);
+}
+
 TEST(FunctionWrapper, GivenStoredCallablesWhenQueriedThenTargetsAndTypesArePreserved)
 {
     fw::function_wrapper<int(int, int)> small = fw::test_support::add;
@@ -195,6 +207,35 @@ TEST(FunctionWrapper, GivenLiveWrappersWhenCopiedMovedAndSwappedThenStateRemains
 
     first.swap(first);
     EXPECT_EQ(first(2, 2), 4);
+}
+
+TEST(FunctionWrapper, GivenTrivialAndNonTrivialSmallCallablesWhenLifecycleRunsThenFastAndFallbackPathsStayCorrect)
+{
+    fw::function_wrapper<int(int)> trivial = fw::test_support::TrivialIncrement{ 4 };
+    EXPECT_EQ(trivial(3), 7);
+    EXPECT_NE(trivial.target<fw::test_support::TrivialIncrement>(), nullptr);
+
+    auto trivial_copy = trivial;
+    EXPECT_EQ(trivial_copy(4), 8);
+    EXPECT_NE(trivial_copy.target<fw::test_support::TrivialIncrement>(), nullptr);
+
+    auto trivial_moved = std::move(trivial_copy);
+    EXPECT_EQ(trivial_moved(5), 9);
+    EXPECT_FALSE(trivial_copy.has_value());
+    trivial_moved.reset();
+    EXPECT_FALSE(trivial_moved.has_value());
+
+    fw::function_wrapper<int(int)> nontrivial = fw::test_support::SmallNonTrivialIncrement{ 6 };
+    auto nontrivial_copy = nontrivial;
+    EXPECT_EQ(nontrivial_copy(2), 8);
+    EXPECT_NE(nontrivial_copy.target<fw::test_support::SmallNonTrivialIncrement>(), nullptr);
+
+    nontrivial = fw::test_support::LargeUnaryIncrement{ .padding = {}, .delta = 3 };
+    EXPECT_EQ(nontrivial(1), 4);
+
+    fw::function_wrapper<int(int)> assigned = fw::test_support::TrivialIncrement{ 2 };
+    assigned = nontrivial;
+    EXPECT_EQ(assigned(3), 6);
 }
 
 TEST(FunctionWrapper, GivenAssignmentsWhenStateChangesThenObserversAndCallsRemainCorrect)

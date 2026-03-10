@@ -4,6 +4,7 @@
 #include <fw/detail/concepts.hpp>
 
 #include <functional>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <typeinfo>
@@ -92,7 +93,7 @@ struct wrapper_storage
 
 
 // ── vtable (lifecycle + per-signature call slots) ──────────────────────────────
-// The wrapper_vtable struct contains the function pointers for all supported signatures as well as the lifecycle functions (destroy, copy, move) and pointer accessors (get_ptr, get_cptr).
+// The wrapper_vtable struct contains the function pointers for all supported signatures as well as the lifecycle functions (destroy, copy, move).
 
 template <class Policy, class... Sigs>
 struct wrapper_vtable : signature_vtable_entry<Sigs>...
@@ -102,11 +103,21 @@ struct wrapper_vtable : signature_vtable_entry<Sigs>...
     using destroy_t = void (*)(storage_type&) noexcept;
     using copy_t = void (*)(storage_type&, const storage_type&);
     using move_t = void (*)(storage_type&, storage_type&) noexcept;
-    using get_ptr_t = void* (*)(storage_type&) noexcept;
-    using get_cptr_t = const void* (*)(const storage_type&) noexcept;
 
-    constexpr wrapper_vtable(signature_vtable_entry<Sigs>... entries, const std::type_info* stored_type, destroy_t d, copy_t c, move_t m, get_ptr_t gp, get_cptr_t gcp) noexcept
-    : signature_vtable_entry<Sigs>(entries)..., type(stored_type), destroy(d), copy(c), move(m), get_ptr(gp), get_cptr(gcp)
+    constexpr wrapper_vtable(signature_vtable_entry<Sigs>... entries,
+                             const std::type_info* stored_type,
+                             destroy_t d,
+                             copy_t c,
+                             move_t m,
+                             bool trivial_small_destroy,
+                             bool trivial_small_relocate) noexcept
+    : signature_vtable_entry<Sigs>(entries)...,
+      type(stored_type),
+      destroy(d),
+      copy(c),
+      move(m),
+      has_trivial_small_destroy(trivial_small_destroy),
+      has_trivial_small_relocate(trivial_small_relocate)
     {
         // no runtime initialization needed since this is a POD aggregate and all members are initialized by the initializer list
     }
@@ -115,8 +126,8 @@ struct wrapper_vtable : signature_vtable_entry<Sigs>...
     destroy_t destroy;
     copy_t copy;
     move_t move;
-    get_ptr_t get_ptr;
-    get_cptr_t get_cptr;
+    bool has_trivial_small_destroy;
+    bool has_trivial_small_relocate;
 };
 
 template <class Sig, class Policy, class... Sigs>
@@ -151,6 +162,73 @@ template <class Storage, class T>
 [[nodiscard]] const T* small_ptr(const Storage& s) noexcept
 {
     return std::launder(reinterpret_cast<const T*>(s.payload.sbo));
+}
+
+template <class Policy, class... Sigs>
+[[nodiscard]] void* storage_ptr(wrapper_storage<Policy, Sigs...>& s) noexcept
+{
+    switch (s.kind)
+    {
+    case storage_kind::Small: return static_cast<void*>(s.payload.sbo);
+    case storage_kind::Heap: return s.payload.heap;
+    default: return nullptr;
+    }
+}
+
+template <class Policy, class... Sigs>
+[[nodiscard]] const void* storage_ptr(const wrapper_storage<Policy, Sigs...>& s) noexcept
+{
+    switch (s.kind)
+    {
+    case storage_kind::Small: return static_cast<const void*>(s.payload.sbo);
+    case storage_kind::Heap: return s.payload.heap;
+    default: return nullptr;
+    }
+}
+
+template <class Policy, class... Sigs>
+void clear_storage(wrapper_storage<Policy, Sigs...>& s) noexcept
+{
+    s.kind = storage_kind::Empty;
+    s.vt = nullptr;
+    s.payload.heap = nullptr;
+}
+
+template <class Policy, class... Sigs>
+void destroy_trivial_small_storage(wrapper_storage<Policy, Sigs...>& s) noexcept
+{
+    clear_storage(s);
+}
+
+template <class Policy, class... Sigs>
+void copy_trivial_small_storage(wrapper_storage<Policy, Sigs...>& dst, const wrapper_storage<Policy, Sigs...>& src) noexcept
+{
+    std::memcpy(dst.payload.sbo, src.payload.sbo, sizeof(dst.payload.sbo));
+    dst.kind = storage_kind::Small;
+    dst.vt = src.vt;
+}
+
+template <class Policy, class... Sigs>
+void move_trivial_small_storage(wrapper_storage<Policy, Sigs...>& dst, wrapper_storage<Policy, Sigs...>& src) noexcept
+{
+    copy_trivial_small_storage(dst, src);
+    clear_storage(src);
+}
+
+template <class Stored, class Policy, class... Sigs, class... Args>
+void emplace_small_storage(wrapper_storage<Policy, Sigs...>& storage, const wrapper_vtable<Policy, Sigs...>* vt, Args&&... args)
+{
+    fw_construct<Stored>(storage.payload.sbo, std::forward<Args>(args)...);
+    storage.kind = storage_kind::Small;
+    storage.vt = vt;
+}
+
+template <class Stored, class Policy, class... Sigs, class... Args>
+void emplace_heap_storage(wrapper_storage<Policy, Sigs...>& storage, const wrapper_vtable<Policy, Sigs...>* vt, Args&&... args)
+{
+    storage.payload.heap = new Stored(std::forward<Args>(args)...);
+    storage.kind = storage_kind::Heap;
+    storage.vt = vt;
 }
 
 
@@ -435,26 +513,6 @@ struct vtable_instance
         src.vt = nullptr;
     }
 
-    [[nodiscard]] static void* get_ptr(storage_type& s) noexcept
-    {
-        switch (s.kind)
-        {
-        case storage_kind::Small: return small_ptr<storage_type, Stored>(s);
-        case storage_kind::Heap: return s.payload.heap;
-        default: return nullptr;
-        }
-    }
-
-    [[nodiscard]] static const void* get_cptr(const storage_type& s) noexcept
-    {
-        switch (s.kind)
-        {
-        case storage_kind::Small: return small_ptr<storage_type, Stored>(s);
-        case storage_kind::Heap: return s.payload.heap;
-        default: return nullptr;
-        }
-    }
-
     [[nodiscard]] static const vtable_type* get() noexcept
     {
         static const vtable_type table{ signature_entry_factory<Stored, Sigs>::make()...,
@@ -462,8 +520,8 @@ struct vtable_instance
                                         &destroy,
                                         copy_fn(),
                                         &move,
-                                        &get_ptr,
-                                        &get_cptr };
+                                        fits_in_sbo_v<Policy, Stored> && std::is_trivially_destructible_v<Stored>,
+                                        fits_in_sbo_v<Policy, Stored> && std::is_trivially_copyable_v<Stored> };
         return &table;
     }
 };
