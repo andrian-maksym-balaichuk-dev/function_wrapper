@@ -304,7 +304,7 @@ FW_BENCHMARK_NOINLINE void construct_and_invoke_loop(Factory&& factory, std::siz
 template <class Runner>
 benchmark_result run_benchmark(std::string_view name, Runner&& runner)
 {
-    constexpr auto target = std::chrono::milliseconds(200);
+    constexpr auto target = std::chrono::milliseconds(1000);
     constexpr std::size_t max_iterations = std::size_t{ 1 } << 24;
 
     std::size_t iterations = 256;

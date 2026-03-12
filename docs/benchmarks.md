@@ -59,7 +59,7 @@ These are local microbenchmarks, not a portability claim. Compare rows on the sa
 
 ## Sample Results
 
-The following numbers were recorded locally on March 9, 2026 from:
+The following numbers were recorded locally on March 12, 2026 from:
 
 ```bash
 ./cmake-build-debug/fw_benchmarks
@@ -71,51 +71,49 @@ They are included as one reference point only. Treat them as machine-specific.
 
 | Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
 | --- | ---: | ---: | ---: | ---: |
-| direct lambda | 1.11 | 0.00 | 0.00 | 0 |
-| function pointer | 1.09 | 0.00 | 0.00 | 0 |
-| `std::function` | 1.07 | 0.00 | 0.00 | 0 |
-| `fw::function_wrapper` | 1.10 | 0.00 | 0.00 | 0 |
-| `fw::move_only_function_wrapper` | 1.09 | 0.00 | 0.00 | 0 |
-| `fw::function_ref` | 1.09 | 0.00 | 0.00 | 0 |
-| `simple_function_ref` | 1.09 | 0.00 | 0.00 | 0 |
+| direct lambda | 0.95 | 0.00 | 0.00 | 0 |
+| `std::function` | 1.01 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` | 1.03 | 0.00 | 0.00 | 0 |
+| `fw::move_only_function_wrapper` | 1.03 | 0.00 | 0.00 | 0 |
+| `fw::function_ref` | 1.03 | 0.00 | 0.00 | 0 |
 
 ### Large callable invocation
 
 | Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
 | --- | ---: | ---: | ---: | ---: |
-| `std::function` large | 1.11 | 0.00 | 0.00 | 0 |
-| `fw::function_wrapper` large | 1.09 | 0.00 | 0.00 | 0 |
-| `fw::move_only_function_wrapper` large | 1.12 | 0.00 | 0.00 | 0 |
+| `std::function` large | 1.05 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` large | 1.05 | 0.00 | 0.00 | 0 |
+| `fw::move_only_function_wrapper` large | 1.05 | 0.00 | 0.00 | 0 |
 
 ### Small callable construction + call
 
 | Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
 | --- | ---: | ---: | ---: | ---: |
-| `std::function` small ctor+call | 1.88 | 0.00 | 0.00 | 0 |
-| `fw::function_wrapper` small ctor+call | 1.79 | 0.00 | 0.00 | 0 |
-| `fw::move_only_wrapper` small ctor+call | 1.61 | 0.00 | 0.00 | 0 |
+| `std::function` small ctor+call | 1.47 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` small ctor+call | 1.21 | 0.00 | 0.00 | 0 |
+| `fw::move_only_wrapper` small ctor+call | 1.10 | 0.00 | 0.00 | 0 |
 
 ### Move-only construction + call
 
 | Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
 | --- | ---: | ---: | ---: | ---: |
-| `fw::move_only_wrapper` noalloc | 1.53 | 0.00 | 0.00 | 0 |
-| `fw::move_only_wrapper` move-only ctor+call | 19.63 | 1.00 | 4.00 | 4 |
-| `fw::move_only_wrapper` large move-only | 37.36 | 2.00 | 268.00 | 268 |
+| `fw::move_only_wrapper` noalloc | 1.11 | 0.00 | 0.00 | 0 |
+| `fw::move_only_wrapper` move-only ctor+call | 19.13 | 1.00 | 4.00 | 4 |
+| `fw::move_only_wrapper` large move-only | 36.38 | 2.00 | 268.00 | 268 |
 
 ### Member adapter invocation
 
 | Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
 | --- | ---: | ---: | ---: | ---: |
 | `std::function` member via lambda | 1.05 | 0.00 | 0.00 | 0 |
-| `fw::function_wrapper` member_ref | 1.54 | 0.00 | 0.00 | 0 |
-| direct `fw::member_ref` | 1.03 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` member_ref | 1.04 | 0.00 | 0.00 | 0 |
+| direct `fw::member_ref` | 1.02 | 0.00 | 0.00 | 0 |
 
 ## Notes
 
 - `std::move_only_function` rows are skipped automatically if the current standard library does not provide it.
 - `std::move_only_function` rows were skipped in the sample run above because the local standard library did not provide it.
-- `fw::function_wrapper member_ref` uses a dedicated internal member-adapter dispatch path in this build; the remaining gap to the lambda baseline is wrapper overhead, not an extra adapter lambda.
+- `fw::function_wrapper member_ref` uses a dedicated internal member-adapter dispatch path in this build; it now matches `std::function`'s lambda-based binding within measurement noise.
 - `fw::move_only_wrapper noalloc` is the cleaner wrapper-overhead row for move-only ownership. The `move-only ctor+call` and `large move-only` rows above also include the cost of constructing callables that allocate `std::unique_ptr` storage on every iteration.
 - Allocation tracking is measured in a separate pass after timing calibration, but the benchmark binary still includes global allocation hooks. Treat the absolute `ns/op` values as relative to this benchmark build, not as canonical library-wide timings.
 - The suite is informative only. It is not a CI pass/fail gate.

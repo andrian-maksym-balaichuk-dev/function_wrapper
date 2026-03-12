@@ -95,21 +95,37 @@ TEST(VTable, GivenMemberAdaptersWhenEntriesAreBuiltThenDirectSlotsRemainCallable
 
 TEST(VTable, GivenStoredTypesWhenLifecycleFlagsAreBuiltThenTrivialSmallMetadataMatchesTheirTraits)
 {
-    const auto* trivial_table = TrivialUnaryVTable::get();
-    const auto* nontrivial_table = NonTrivialUnaryVTable::get();
-    const auto* heap_table = HeapVTable::get();
-    const auto* move_only_table = MoveOnlyVTable::get();
+    // Trivial flags are now encoded in the vt_tagged field of storage, not in the vtable struct.
+    using UnaryStorage = fw::detail::wrapper_storage<fw::policy::default_policy, int(int)>;
 
-    EXPECT_TRUE(trivial_table->has_trivial_small_destroy);
-    EXPECT_TRUE(trivial_table->has_trivial_small_relocate);
+    UnaryStorage trivial_storage{};
+    fw::detail::emplace_small_storage<fw::test_support::TrivialIncrement>(
+        trivial_storage, TrivialUnaryVTable::get(), fw::test_support::TrivialIncrement{ 1 });
+    EXPECT_TRUE(trivial_storage.has_trivial_small_destroy());
+    EXPECT_TRUE(trivial_storage.has_trivial_small_relocate());
+    TrivialUnaryVTable::destroy(trivial_storage);
 
-    EXPECT_TRUE(nontrivial_table->has_trivial_small_destroy);
-    EXPECT_FALSE(nontrivial_table->has_trivial_small_relocate);
+    UnaryStorage nontrivial_storage{};
+    fw::detail::emplace_small_storage<fw::test_support::SmallNonTrivialIncrement>(
+        nontrivial_storage, NonTrivialUnaryVTable::get(), fw::test_support::SmallNonTrivialIncrement{ 1 });
+    EXPECT_TRUE(nontrivial_storage.has_trivial_small_destroy());
+    EXPECT_FALSE(nontrivial_storage.has_trivial_small_relocate());
+    NonTrivialUnaryVTable::destroy(nontrivial_storage);
 
-    EXPECT_FALSE(heap_table->has_trivial_small_destroy);
-    EXPECT_FALSE(heap_table->has_trivial_small_relocate);
-    EXPECT_FALSE(move_only_table->has_trivial_small_destroy);
-    EXPECT_FALSE(move_only_table->has_trivial_small_relocate);
+    // Heap storage: no trivial flags (heap objects are never trivially stored in SBO)
+    SmallStorage heap_storage{};
+    fw::detail::emplace_heap_storage<fw::test_support::LargeAdder>(
+        heap_storage, HeapVTable::get(), fw::test_support::LargeAdder{});
+    EXPECT_FALSE(heap_storage.has_trivial_small_destroy());
+    EXPECT_FALSE(heap_storage.has_trivial_small_relocate());
+    HeapVTable::destroy(heap_storage);
+
+    SmallStorage move_only_storage{};
+    fw::detail::emplace_small_storage<fw::test_support::MoveOnlyAdder>(
+        move_only_storage, MoveOnlyVTable::get(), fw::test_support::MoveOnlyAdder{ 4 });
+    EXPECT_FALSE(move_only_storage.has_trivial_small_destroy());
+    EXPECT_FALSE(move_only_storage.has_trivial_small_relocate());
+    MoveOnlyVTable::destroy(move_only_storage);
 }
 
 TEST(VTable, GivenMoveOnlyStoredTypeWhenVTableIsBuiltThenCopyThunkIsNullAndMoveStillWorks)
@@ -121,19 +137,17 @@ TEST(VTable, GivenMoveOnlyStoredTypeWhenVTableIsBuiltThenCopyThunkIsNullAndMoveS
     EXPECT_EQ(table->copy, nullptr);
 
     fw::detail::fw_construct<fw::test_support::MoveOnlyAdder>(source.payload.sbo, fw::test_support::MoveOnlyAdder{ 4 });
-    source.kind = fw::detail::storage_kind::Small;
-    source.vt = table;
+    source.vt_tagged = reinterpret_cast<uintptr_t>(table) | fw::detail::vtable_tag_is_small;
+    source.obj = static_cast<void*>(source.payload.sbo);
 
     SmallStorage moved{};
     MoveOnlyVTable::move(moved, source);
 
-    EXPECT_FALSE(source.vt);
-    EXPECT_EQ(source.kind, fw::detail::storage_kind::Empty);
+    EXPECT_TRUE(source.is_empty());
     EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(moved), 2, 3), 9);
 
     MoveOnlyVTable::destroy(moved);
-    EXPECT_EQ(moved.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(moved.vt, nullptr);
+    EXPECT_TRUE(moved.is_empty());
 }
 
 TEST(VTable, GivenStorageKindsWhenPointerHelpersAreUsedThenObjectAddressesMatchThePayload)
@@ -144,14 +158,16 @@ TEST(VTable, GivenStorageKindsWhenPointerHelpersAreUsedThenObjectAddressesMatchT
 
     SmallStorage small{};
     fw::detail::fw_construct<int (*)(int, int)>(small.payload.sbo, &fw::test_support::add);
-    small.kind = fw::detail::storage_kind::Small;
+    small.vt_tagged = fw::detail::vtable_tag_is_small; // just the flag; no real vtable needed for this check
+    small.obj = static_cast<void*>(small.payload.sbo);
     EXPECT_EQ(fw::detail::storage_ptr(small), static_cast<void*>(small.payload.sbo));
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(small)), static_cast<const void*>(small.payload.sbo));
     SmallVTable::destroy(small);
 
     SmallStorage heap{};
     heap.payload.heap = new fw::test_support::LargeAdder{};
-    heap.kind = fw::detail::storage_kind::Heap;
+    heap.vt_tagged = reinterpret_cast<uintptr_t>(HeapVTable::get()); // Heap: no TAG_IS_SMALL
+    heap.obj = heap.payload.heap;
     EXPECT_EQ(fw::detail::storage_ptr(heap), heap.payload.heap);
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(heap)), heap.payload.heap);
     HeapVTable::destroy(heap);
@@ -166,12 +182,9 @@ TEST(VTable, GivenSmallStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVal
     SmallVTable::copy(empty_copy, empty_source);
     SmallVTable::move(empty_move, empty_source);
     SmallVTable::destroy(empty_source);
-    EXPECT_EQ(empty_copy.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(empty_copy.vt, nullptr);
-    EXPECT_EQ(empty_move.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(empty_move.vt, nullptr);
-    EXPECT_EQ(empty_source.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(empty_source.vt, nullptr);
+    EXPECT_TRUE(empty_copy.is_empty());
+    EXPECT_TRUE(empty_move.is_empty());
+    EXPECT_TRUE(empty_source.is_empty());
     EXPECT_EQ(fw::detail::storage_ptr(empty_copy), nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(empty_copy)), nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(empty_move), nullptr);
@@ -182,8 +195,8 @@ TEST(VTable, GivenSmallStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVal
     const auto& entry = static_cast<const fw::detail::signature_vtable_entry<int(int, int)>&>(*table);
 
     fw::detail::fw_construct<int (*)(int, int)>(source.payload.sbo, &fw::test_support::add);
-    source.kind = fw::detail::storage_kind::Small;
-    source.vt = table;
+    source.vt_tagged = reinterpret_cast<uintptr_t>(table) | fw::detail::vtable_tag_is_small;
+    source.obj = static_cast<void*>(source.payload.sbo);
 
     EXPECT_NE(fw::detail::storage_ptr(source), nullptr);
     EXPECT_NE(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
@@ -198,20 +211,17 @@ TEST(VTable, GivenSmallStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVal
     SmallStorage moved{};
     SmallVTable::move(moved, copied);
     EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(moved), 5, 6), 11);
-    EXPECT_EQ(copied.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(copied.vt, nullptr);
+    EXPECT_TRUE(copied.is_empty());
     EXPECT_EQ(fw::detail::storage_ptr(copied), nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(copied)), nullptr);
 
     SmallVTable::destroy(source);
     SmallVTable::destroy(moved);
 
-    EXPECT_EQ(source.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(source.vt, nullptr);
+    EXPECT_TRUE(source.is_empty());
     EXPECT_EQ(fw::detail::storage_ptr(source), nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
-    EXPECT_EQ(moved.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(moved.vt, nullptr);
+    EXPECT_TRUE(moved.is_empty());
     EXPECT_EQ(fw::detail::storage_ptr(moved), nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(moved)), nullptr);
 }
@@ -223,8 +233,8 @@ TEST(VTable, GivenHeapStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVali
     const auto& entry = static_cast<const fw::detail::signature_vtable_entry<int(int, int)>&>(*table);
 
     source.payload.heap = new fw::test_support::LargeAdder{};
-    source.kind = fw::detail::storage_kind::Heap;
-    source.vt = table;
+    source.vt_tagged = reinterpret_cast<uintptr_t>(table); // Heap: no TAG_IS_SMALL
+    source.obj = source.payload.heap;
 
     EXPECT_NE(fw::detail::storage_ptr(source), nullptr);
     EXPECT_NE(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
@@ -239,20 +249,17 @@ TEST(VTable, GivenHeapStorageWhenCopiedMovedAndDestroyedThenLifecycleRemainsVali
     SmallStorage moved{};
     HeapVTable::move(moved, copied);
     EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(moved), 5, 6), 11);
-    EXPECT_EQ(copied.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(copied.vt, nullptr);
+    EXPECT_TRUE(copied.is_empty());
     EXPECT_EQ(copied.payload.heap, nullptr);
 
     HeapVTable::destroy(source);
     HeapVTable::destroy(moved);
 
-    EXPECT_EQ(source.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(source.vt, nullptr);
+    EXPECT_TRUE(source.is_empty());
     EXPECT_EQ(source.payload.heap, nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(source), nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(source)), nullptr);
-    EXPECT_EQ(moved.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(moved.vt, nullptr);
+    EXPECT_TRUE(moved.is_empty());
     EXPECT_EQ(moved.payload.heap, nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(moved), nullptr);
     EXPECT_EQ(fw::detail::storage_ptr(static_cast<const SmallStorage&>(moved)), nullptr);
@@ -266,8 +273,8 @@ TEST(VTable, GivenVoidCallableWhenInvokedThenAllSlotsExecuteTheStoredObject)
     const auto& entry = static_cast<const fw::detail::signature_vtable_entry<void()>&>(*table);
 
     fw::detail::fw_construct<fw::test_support::InvocationCounter>(storage.payload.sbo, fw::test_support::InvocationCounter{ &calls });
-    storage.kind = fw::detail::storage_kind::Small;
-    storage.vt = table;
+    storage.vt_tagged = reinterpret_cast<uintptr_t>(table) | fw::detail::vtable_tag_is_small;
+    storage.obj = static_cast<void*>(storage.payload.sbo);
 
     entry.lcall(fw::detail::storage_ptr(storage));
     entry.clcall(fw::detail::storage_ptr(static_cast<const VoidStorage&>(storage)));
@@ -276,8 +283,7 @@ TEST(VTable, GivenVoidCallableWhenInvokedThenAllSlotsExecuteTheStoredObject)
     EXPECT_EQ(calls, 3);
 
     VoidVTable::destroy(storage);
-    EXPECT_EQ(storage.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(storage.vt, nullptr);
+    EXPECT_TRUE(storage.is_empty());
 }
 
 TEST(VTable, GivenNoexceptStorageWhenInvokedThenAllSlotsRemainCallable)
@@ -287,14 +293,13 @@ TEST(VTable, GivenNoexceptStorageWhenInvokedThenAllSlotsRemainCallable)
     const auto& entry = static_cast<const fw::detail::signature_vtable_entry<int(int, int) noexcept>&>(*table);
 
     fw::detail::fw_construct<int (*)(int, int) noexcept>(storage.payload.sbo, &fw::test_support::add_noexcept);
-    storage.kind = fw::detail::storage_kind::Small;
-    storage.vt = table;
+    storage.vt_tagged = reinterpret_cast<uintptr_t>(table) | fw::detail::vtable_tag_is_small;
+    storage.obj = static_cast<void*>(storage.payload.sbo);
 
     EXPECT_EQ(entry.lcall(fw::detail::storage_ptr(storage), 1, 2), 3);
     EXPECT_EQ(entry.clcall(fw::detail::storage_ptr(static_cast<const NoexceptStorage&>(storage)), 2, 3), 5);
     EXPECT_EQ(entry.rcall(fw::detail::storage_ptr(storage), 3, 4), 7);
 
     NoexceptVTable::destroy(storage);
-    EXPECT_EQ(storage.kind, fw::detail::storage_kind::Empty);
-    EXPECT_EQ(storage.vt, nullptr);
+    EXPECT_TRUE(storage.is_empty());
 }

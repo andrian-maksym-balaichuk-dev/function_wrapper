@@ -65,9 +65,9 @@ public:
         {
             detail::move_trivial_small_storage(storage_, other.storage_);
         }
-        else if (other.storage_.vt)
+        else if (const auto* vt = other.storage_.vtable_ptr())
         {
-            other.storage_.vt->move(storage_, other.storage_);
+            vt->move(storage_, other.storage_);
         }
     }
 
@@ -81,9 +81,9 @@ public:
             {
                 detail::move_trivial_small_storage(storage_, rhs.storage_);
             }
-            else if (rhs.storage_.vt)
+            else if (const auto* vt = rhs.storage_.vtable_ptr())
             {
-                rhs.storage_.vt->move(storage_, rhs.storage_);
+                vt->move(storage_, rhs.storage_);
             }
         }
         return *this;
@@ -116,7 +116,7 @@ public:
 
     FW_NODISCARD_MSG("check before calling to avoid bad_call") bool has_value() const noexcept
     {
-        return storage_.vt != nullptr;
+        return !storage_.is_empty();
     }
 
     [[nodiscard]] explicit operator bool() const noexcept
@@ -126,7 +126,8 @@ public:
 
     [[nodiscard]] const std::type_info& target_type() const noexcept
     {
-        return storage_.vt ? *storage_.vt->type : typeid(void);
+        const auto* vt = storage_.vtable_ptr();
+        return vt ? *vt->type : typeid(void);
     }
 
     template <class Sig>
@@ -144,7 +145,7 @@ public:
         }
         else
         {
-            return detail::vtable_has_bound_signature<Sig>(storage_.vt);
+            return detail::vtable_has_bound_signature<Sig>(storage_.vtable_ptr());
         }
     }
 
@@ -210,36 +211,38 @@ public:
     template <class T>
     [[nodiscard]] T* target() noexcept
     {
-        if (!storage_.vt || *storage_.vt->type != typeid(T))
+        const auto* vt = storage_.vtable_ptr();
+        if (!vt || *vt->type != typeid(T))
         {
             return nullptr;
         }
-        return static_cast<T*>(detail::storage_ptr(storage_));
+        return static_cast<T*>(storage_.obj);
     }
 
     template <class T>
     [[nodiscard]] const T* target() const noexcept
     {
-        if (!storage_.vt || *storage_.vt->type != typeid(T))
+        const auto* vt = storage_.vtable_ptr();
+        if (!vt || *vt->type != typeid(T))
         {
             return nullptr;
         }
-        return static_cast<const T*>(detail::storage_ptr(storage_));
+        return static_cast<const T*>(storage_.obj);
     }
 
     [[nodiscard]] const vtable_type* vtable_ptr() const noexcept
     {
-        return storage_.vt;
+        return storage_.vtable_ptr();
     }
 
     [[nodiscard]] void* object_ptr() noexcept
     {
-        return detail::storage_ptr(storage_);
+        return storage_.obj;
     }
 
     [[nodiscard]] const void* object_ptr() const noexcept
     {
-        return detail::storage_ptr(storage_);
+        return storage_.obj;
     }
 
     void reset() noexcept
@@ -248,9 +251,9 @@ public:
         {
             detail::destroy_trivial_small_storage(storage_);
         }
-        else if (storage_.vt)
+        else if (const auto* vt = storage_.vtable_ptr())
         {
-            storage_.vt->destroy(storage_);
+            vt->destroy(storage_);
         }
     }
 
@@ -263,17 +266,17 @@ public:
 
         storage_type tmp{};
 
-        if (storage_.vt)
+        if (const auto* vt = storage_.vtable_ptr())
         {
-            storage_.vt->move(tmp, storage_);
+            vt->move(tmp, storage_);
         }
-        if (other.storage_.vt)
+        if (const auto* vt = other.storage_.vtable_ptr())
         {
-            other.storage_.vt->move(storage_, other.storage_);
+            vt->move(storage_, other.storage_);
         }
-        if (tmp.vt)
+        if (const auto* vt = tmp.vtable_ptr())
         {
-            tmp.vt->move(other.storage_, tmp);
+            vt->move(other.storage_, tmp);
         }
     }
 
@@ -311,12 +314,12 @@ private:
 
     [[nodiscard]] bool uses_trivial_small_destroy_() const noexcept
     {
-        return storage_.kind == detail::storage_kind::Small && storage_.vt && storage_.vt->has_trivial_small_destroy;
+        return storage_.has_trivial_small_destroy();
     }
 
     [[nodiscard]] bool uses_trivial_small_relocate_() const noexcept
     {
-        return storage_.kind == detail::storage_kind::Small && storage_.vt && storage_.vt->has_trivial_small_relocate;
+        return storage_.has_trivial_small_relocate();
     }
 
     template <class Self, class... CallArgs>

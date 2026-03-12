@@ -59,7 +59,7 @@ struct sbo
     static constexpr std::size_t storage_size = Size;
 };
 
-using default_policy = sbo<3 * sizeof(void*)>;
+using default_policy = sbo<4 * sizeof(void*)>;
 } // namespace fw::policy
 
 namespace fw::detail

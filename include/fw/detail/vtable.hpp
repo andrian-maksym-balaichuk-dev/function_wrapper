@@ -18,14 +18,13 @@ class member_adapter;
 
 namespace fw::detail
 {
-// ── storage kind ──────────────────────────────────────────────────────────────
-// Indicates whether the wrapper is currently empty, using SBO, or using heap storage.
-enum class storage_kind : unsigned char
-{
-    Empty,
-    Small,
-    Heap
-};
+// ── vtable tag bits ────────────────────────────────────────────────────────────
+// Stored in the low 3 bits of the vt_tagged pointer field (vtables are always
+// at least 8-byte aligned on all supported ABIs, so these bits are otherwise 0).
+inline constexpr uintptr_t vtable_tag_is_small         = 1u; // bit 0: object lives in SBO
+inline constexpr uintptr_t vtable_tag_trivial_destroy  = 2u; // bit 1: trivially destructible in SBO
+inline constexpr uintptr_t vtable_tag_trivial_relocate = 4u; // bit 2: trivially copyable in SBO
+inline constexpr uintptr_t vtable_tags_mask            = 7u;
 
 
 // ── per-signature vtable entry ─────────────────────────────────────────────────
@@ -92,9 +91,28 @@ struct wrapper_storage
 
     using vtable_type = wrapper_vtable<Policy, Sigs...>;
 
-    storage_kind kind{ storage_kind::Empty };
-    const vtable_type* vt{ nullptr };
-    payload_t payload{};
+    // Layout (48 bytes with default_policy SBO=32):
+    //   offset  0: vt_tagged (8 bytes) — vtable ptr OR'd with tag bits
+    //   offset  8: obj       (8 bytes) — precomputed pointer to stored callable
+    //   offset 16: payload   (32 bytes, align 16) — SBO buffer or heap pointer
+    //
+    // Invariants:
+    //   Empty: vt_tagged == 0,    obj == nullptr
+    //   Small: vt_tagged = addr | TAG_IS_SMALL | trivial_flags,  obj = &payload.sbo[0]
+    //   Heap:  vt_tagged = addr   (no flags),                    obj = payload.heap
+    uintptr_t  vt_tagged{ 0 };
+    void*      obj{ nullptr };
+    payload_t  payload{};
+
+    [[nodiscard]] const vtable_type* vtable_ptr() const noexcept
+    {
+        return reinterpret_cast<const vtable_type*>(vt_tagged & ~vtable_tags_mask);
+    }
+    [[nodiscard]] bool is_empty() const noexcept { return vt_tagged == 0; }
+    [[nodiscard]] bool is_small() const noexcept { return (vt_tagged & vtable_tag_is_small) != 0; }
+    [[nodiscard]] bool is_heap()  const noexcept { return !is_empty() && !is_small(); }
+    [[nodiscard]] bool has_trivial_small_destroy()  const noexcept { return (vt_tagged & vtable_tag_trivial_destroy) != 0; }
+    [[nodiscard]] bool has_trivial_small_relocate() const noexcept { return (vt_tagged & vtable_tag_trivial_relocate) != 0; }
 };
 
 
@@ -114,16 +132,12 @@ struct wrapper_vtable : signature_vtable_entry<Sigs>...
                              const std::type_info* stored_type,
                              destroy_t d,
                              copy_t c,
-                             move_t m,
-                             bool trivial_small_destroy,
-                             bool trivial_small_relocate) noexcept
+                             move_t m) noexcept
     : signature_vtable_entry<Sigs>(entries)...,
       type(stored_type),
       destroy(d),
       copy(c),
-      move(m),
-      has_trivial_small_destroy(trivial_small_destroy),
-      has_trivial_small_relocate(trivial_small_relocate)
+      move(m)
     {
         // no runtime initialization needed since this is a POD aggregate and all members are initialized by the initializer list
     }
@@ -132,8 +146,6 @@ struct wrapper_vtable : signature_vtable_entry<Sigs>...
     destroy_t destroy;
     copy_t copy;
     move_t move;
-    bool has_trivial_small_destroy;
-    bool has_trivial_small_relocate;
 };
 
 template <class Sig, class Policy, class... Sigs>
@@ -173,30 +185,20 @@ template <class Storage, class T>
 template <class Policy, class... Sigs>
 [[nodiscard]] void* storage_ptr(wrapper_storage<Policy, Sigs...>& s) noexcept
 {
-    switch (s.kind)
-    {
-    case storage_kind::Small: return static_cast<void*>(s.payload.sbo);
-    case storage_kind::Heap: return s.payload.heap;
-    default: return nullptr;
-    }
+    return s.obj;
 }
 
 template <class Policy, class... Sigs>
 [[nodiscard]] const void* storage_ptr(const wrapper_storage<Policy, Sigs...>& s) noexcept
 {
-    switch (s.kind)
-    {
-    case storage_kind::Small: return static_cast<const void*>(s.payload.sbo);
-    case storage_kind::Heap: return s.payload.heap;
-    default: return nullptr;
-    }
+    return s.obj;
 }
 
 template <class Policy, class... Sigs>
 void clear_storage(wrapper_storage<Policy, Sigs...>& s) noexcept
 {
-    s.kind = storage_kind::Empty;
-    s.vt = nullptr;
+    s.vt_tagged = 0;
+    s.obj = nullptr;
     s.payload.heap = nullptr;
 }
 
@@ -210,8 +212,8 @@ template <class Policy, class... Sigs>
 void copy_trivial_small_storage(wrapper_storage<Policy, Sigs...>& dst, const wrapper_storage<Policy, Sigs...>& src) noexcept
 {
     std::memcpy(dst.payload.sbo, src.payload.sbo, sizeof(dst.payload.sbo));
-    dst.kind = storage_kind::Small;
-    dst.vt = src.vt;
+    dst.vt_tagged = src.vt_tagged; // preserves TAG_IS_SMALL and trivial flags
+    dst.obj = static_cast<void*>(dst.payload.sbo); // must point to OWN buffer, not src's
 }
 
 template <class Policy, class... Sigs>
@@ -225,16 +227,22 @@ template <class Stored, class Policy, class... Sigs, class... Args>
 void emplace_small_storage(wrapper_storage<Policy, Sigs...>& storage, const wrapper_vtable<Policy, Sigs...>* vt, Args&&... args)
 {
     fw_construct<Stored>(storage.payload.sbo, std::forward<Args>(args)...);
-    storage.kind = storage_kind::Small;
-    storage.vt = vt;
+    uintptr_t tags = vtable_tag_is_small;
+    if constexpr (std::is_trivially_destructible_v<Stored>)
+        tags |= vtable_tag_trivial_destroy;
+    if constexpr (std::is_trivially_copyable_v<Stored>)
+        tags |= vtable_tag_trivial_relocate;
+    storage.vt_tagged = reinterpret_cast<uintptr_t>(vt) | tags;
+    storage.obj = static_cast<void*>(storage.payload.sbo);
 }
 
 template <class Stored, class Policy, class... Sigs, class... Args>
 void emplace_heap_storage(wrapper_storage<Policy, Sigs...>& storage, const wrapper_vtable<Policy, Sigs...>* vt, Args&&... args)
 {
-    storage.payload.heap = new Stored(std::forward<Args>(args)...);
-    storage.kind = storage_kind::Heap;
-    storage.vt = vt;
+    auto* p = new Stored(std::forward<Args>(args)...);
+    storage.payload.heap = p;
+    storage.vt_tagged = reinterpret_cast<uintptr_t>(vt); // no flags for heap
+    storage.obj = p;
 }
 
 
@@ -502,56 +510,34 @@ struct vtable_instance
 
     static void destroy(storage_type& s) noexcept
     {
-        switch (s.kind)
+        if (s.is_small())
         {
-        case storage_kind::Small: {
             std::destroy_at(small_ptr<storage_type, Stored>(s));
-            break;
         }
-        case storage_kind::Heap: {
+        else if (s.is_heap())
+        {
             delete static_cast<Stored*>(s.payload.heap);
-            s.payload.heap = nullptr;
-            break;
         }
-        case storage_kind::Empty: {
-            break;
-        }
-        default: {
-            return;
-        }
-        }
-
-        s.kind = storage_kind::Empty;
-        s.vt = nullptr;
+        clear_storage(s);
     }
 
     static void copy(storage_type& dst, const storage_type& src)
     {
         static_assert(std::is_copy_constructible_v<Stored>, "fw::detail::vtable_instance::copy requires a copy-constructible stored type.");
 
-        switch (src.kind)
+        if (src.is_small())
         {
-        case storage_kind::Small: {
             const Stored& obj = *small_ptr<storage_type, Stored>(src);
             fw_construct<Stored>(dst.payload.sbo, obj);
-            dst.kind = storage_kind::Small;
-            break;
+            dst.obj = static_cast<void*>(dst.payload.sbo); // own buffer, not src's
         }
-        case storage_kind::Heap: {
-            dst.payload.heap = new Stored(*static_cast<const Stored*>(src.payload.heap));
-            dst.kind = storage_kind::Heap;
-            break;
+        else if (src.is_heap())
+        {
+            auto* p = new Stored(*static_cast<const Stored*>(src.payload.heap));
+            dst.payload.heap = p;
+            dst.obj = p;
         }
-        case storage_kind::Empty: {
-            dst.kind = storage_kind::Empty;
-            break;
-        }
-        default: {
-            return;
-        }
-        }
-
-        dst.vt = src.vt;
+        dst.vt_tagged = src.vt_tagged;
     }
 
     [[nodiscard]] static constexpr typename vtable_type::copy_t copy_fn() noexcept
@@ -568,33 +554,20 @@ struct vtable_instance
 
     static void move(storage_type& dst, storage_type& src) noexcept
     {
-        switch (src.kind)
+        if (src.is_small())
         {
-        case storage_kind::Small: {
             Stored& obj = *small_ptr<storage_type, Stored>(src);
             fw_construct<Stored>(dst.payload.sbo, std::move(obj));
             std::destroy_at(&obj);
-            dst.kind = storage_kind::Small;
-            break;
+            dst.obj = static_cast<void*>(dst.payload.sbo); // own buffer, not src's
         }
-        case storage_kind::Heap: {
+        else if (src.is_heap())
+        {
             dst.payload.heap = src.payload.heap;
-            src.payload.heap = nullptr;
-            dst.kind = storage_kind::Heap;
-            break;
+            dst.obj = src.payload.heap;
         }
-        case storage_kind::Empty: {
-            dst.kind = storage_kind::Empty;
-            break;
-        }
-        default: {
-            return;
-        }
-        }
-
-        dst.vt = src.vt;
-        src.kind = storage_kind::Empty;
-        src.vt = nullptr;
+        dst.vt_tagged = src.vt_tagged;
+        clear_storage(src);
     }
 
     [[nodiscard]] static const vtable_type* get() noexcept
@@ -603,9 +576,7 @@ struct vtable_instance
                                         &typeid(Stored),
                                         &destroy,
                                         copy_fn(),
-                                        &move,
-                                        fits_in_sbo_v<Policy, Stored> && std::is_trivially_destructible_v<Stored>,
-                                        fits_in_sbo_v<Policy, Stored> && std::is_trivially_copyable_v<Stored> };
+                                        &move };
         return &table;
     }
 };
