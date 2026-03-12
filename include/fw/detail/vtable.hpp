@@ -10,6 +10,12 @@
 #include <typeinfo>
 #include <utility>
 
+namespace fw
+{
+template <class Object, class Member>
+class member_adapter;
+}
+
 namespace fw::detail
 {
 // ── storage kind ──────────────────────────────────────────────────────────────
@@ -260,96 +266,174 @@ template <class Stored, class... Sigs>
 struct supports_any_signature_in_list<Stored, typelist<Sigs...>> : std::bool_constant<supports_any_signature_v<Stored, Sigs...>>
 {};
 
+// ── member-adapter traits ─────────────────────────────────────────────────────
+// Detect stored fw::member_adapter instances so wrappers can install direct
+// member thunks rather than bouncing through the adapter's generic operator().
+
+template <class T>
+struct member_adapter_traits
+{
+    static constexpr bool is_member_adapter = false;
+};
+
+template <class Object, class Member>
+struct member_adapter_traits<fw::member_adapter<Object, Member>>
+{
+    static constexpr bool is_member_adapter = true;
+    using object_type = Object;
+    using member_type = Member;
+};
+
 // ── invoke thunks (void* → typed call) ────────────────────────────────────────
 // These functions are used as the call slots in the vtable. They take a void* pointer to the stored object and the call arguments,
 //  cast the pointer to the correct type, and invoke the function. There is one for each value category of the stored object.
 
 template <class Stored, class R, class... Args>
+struct invoke_thunks
+{
+    static R l(void* ptr, Args... args)
+    {
+        auto& fn = *static_cast<Stored*>(ptr);
+        if constexpr (std::is_void_v<R>)
+        {
+            std::invoke(fn, std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(fn, std::forward<Args>(args)...);
+        }
+    }
+
+    static R cl(const void* ptr, Args... args)
+    {
+        const auto& fn = *static_cast<const Stored*>(ptr);
+        if constexpr (std::is_void_v<R>)
+        {
+            std::invoke(fn, std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(fn, std::forward<Args>(args)...);
+        }
+    }
+
+    static R r(void* ptr, Args... args)
+    {
+        if constexpr (std::is_void_v<R>)
+        {
+            std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
+        }
+    }
+};
+
+template <class Object, class Member, class R, class... Args>
+struct invoke_thunks<fw::member_adapter<Object, Member>, R, Args...>
+{
+    using stored_type = fw::member_adapter<Object, Member>;
+
+    static R l(void* ptr, Args... args)
+    {
+        auto* adapter = static_cast<stored_type*>(ptr);
+        if constexpr (std::is_void_v<R>)
+        {
+            std::invoke(adapter->member_ptr(), *adapter->object_ptr(), std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(adapter->member_ptr(), *adapter->object_ptr(), std::forward<Args>(args)...);
+        }
+    }
+
+    static R cl(const void* ptr, Args... args)
+    {
+        const auto* adapter = static_cast<const stored_type*>(ptr);
+        if constexpr (std::is_void_v<R>)
+        {
+            std::invoke(adapter->member_ptr(), *adapter->object_ptr(), std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(adapter->member_ptr(), *adapter->object_ptr(), std::forward<Args>(args)...);
+        }
+    }
+
+    static R r(void* ptr, Args... args)
+    {
+        auto* adapter = static_cast<stored_type*>(ptr);
+        if constexpr (std::is_void_v<R>)
+        {
+            std::invoke(adapter->member_ptr(), *adapter->object_ptr(), std::forward<Args>(args)...);
+            return;
+        }
+        else
+        {
+            return std::invoke(adapter->member_ptr(), *adapter->object_ptr(), std::forward<Args>(args)...);
+        }
+    }
+};
+
+template <class Stored, class R, class... Args>
+struct invoke_noexcept_thunks
+{
+    static R l(void* ptr, Args... args) noexcept
+    {
+        return invoke_thunks<Stored, R, Args...>::l(ptr, std::forward<Args>(args)...);
+    }
+
+    static R cl(const void* ptr, Args... args) noexcept
+    {
+        return invoke_thunks<Stored, R, Args...>::cl(ptr, std::forward<Args>(args)...);
+    }
+
+    static R r(void* ptr, Args... args) noexcept
+    {
+        return invoke_thunks<Stored, R, Args...>::r(ptr, std::forward<Args>(args)...);
+    }
+};
+
+template <class Stored, class R, class... Args>
 R invoke_l(void* ptr, Args... args)
 {
-    auto& fn = *static_cast<Stored*>(ptr);
-    if constexpr (std::is_void_v<R>)
-    {
-        std::invoke(fn, std::forward<Args>(args)...);
-        return;
-    }
-    else
-    {
-        return std::invoke(fn, std::forward<Args>(args)...);
-    }
+    return invoke_thunks<Stored, R, Args...>::l(ptr, std::forward<Args>(args)...);
 }
 
 template <class Stored, class R, class... Args>
 R invoke_cl(const void* ptr, Args... args)
 {
-    const auto& fn = *static_cast<const Stored*>(ptr);
-    if constexpr (std::is_void_v<R>)
-    {
-        std::invoke(fn, std::forward<Args>(args)...);
-        return;
-    }
-    else
-    {
-        return std::invoke(fn, std::forward<Args>(args)...);
-    }
+    return invoke_thunks<Stored, R, Args...>::cl(ptr, std::forward<Args>(args)...);
 }
 
 template <class Stored, class R, class... Args>
 R invoke_r(void* ptr, Args... args)
 {
-    if constexpr (std::is_void_v<R>)
-    {
-        std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
-        return;
-    }
-    else
-    {
-        return std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
-    }
+    return invoke_thunks<Stored, R, Args...>::r(ptr, std::forward<Args>(args)...);
 }
 
 template <class Stored, class R, class... Args>
 R invoke_l_noexcept(void* ptr, Args... args) noexcept
 {
-    auto& fn = *static_cast<Stored*>(ptr);
-    if constexpr (std::is_void_v<R>)
-    {
-        std::invoke(fn, std::forward<Args>(args)...);
-        return;
-    }
-    else
-    {
-        return std::invoke(fn, std::forward<Args>(args)...);
-    }
+    return invoke_noexcept_thunks<Stored, R, Args...>::l(ptr, std::forward<Args>(args)...);
 }
 
 template <class Stored, class R, class... Args>
 R invoke_cl_noexcept(const void* ptr, Args... args) noexcept
 {
-    const auto& fn = *static_cast<const Stored*>(ptr);
-    if constexpr (std::is_void_v<R>)
-    {
-        std::invoke(fn, std::forward<Args>(args)...);
-        return;
-    }
-    else
-    {
-        return std::invoke(fn, std::forward<Args>(args)...);
-    }
+    return invoke_noexcept_thunks<Stored, R, Args...>::cl(ptr, std::forward<Args>(args)...);
 }
 
 template <class Stored, class R, class... Args>
 R invoke_r_noexcept(void* ptr, Args... args) noexcept
 {
-    if constexpr (std::is_void_v<R>)
-    {
-        std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
-        return;
-    }
-    else
-    {
-        return std::invoke(std::move(*static_cast<Stored*>(ptr)), std::forward<Args>(args)...);
-    }
+    return invoke_noexcept_thunks<Stored, R, Args...>::r(ptr, std::forward<Args>(args)...);
 }
 
 // ── vtable entry factory ───────────────────────────────────────────────────────

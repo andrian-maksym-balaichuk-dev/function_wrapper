@@ -163,6 +163,8 @@ TEST(FunctionWrapper, GivenMemberAdaptersWhenStoredThenWrappersDoNotNeedLambdasF
     fw::function_wrapper<int(int) noexcept> noexcept_wrapper = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::scale_noexcept);
 
     EXPECT_EQ(member_wrapper(3), 12);
+    EXPECT_EQ(static_cast<const fw::function_wrapper<int(int)>&>(member_wrapper)(2), 8);
+    EXPECT_EQ(std::move(member_wrapper)(2), 8);
     EXPECT_EQ(const_member_wrapper(3), 10);
     EXPECT_EQ(member_object_wrapper(), 6);
     member_object_wrapper() = 9;

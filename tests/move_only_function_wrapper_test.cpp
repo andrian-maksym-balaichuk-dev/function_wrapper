@@ -64,6 +64,8 @@ TEST(MoveOnlyFunctionWrapper, GivenMemberAdaptersWhenStoredThenMoveOnlyWrapperCa
     fw::move_only_function_wrapper<int&()> member_object_wrapper = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::offset);
 
     EXPECT_EQ(member_wrapper(5), 15);
+    EXPECT_EQ(static_cast<const fw::move_only_function_wrapper<int(int)>&>(member_wrapper)(2), 6);
+    EXPECT_EQ(std::move(member_wrapper)(3), 9);
     member_object_wrapper() = 11;
     EXPECT_EQ(target.offset, 11);
 }

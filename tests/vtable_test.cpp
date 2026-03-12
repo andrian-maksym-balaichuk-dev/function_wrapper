@@ -68,6 +68,31 @@ TEST(VTable, GivenNoexceptSignatureWhenEntryIsBuiltThenSlotsUseNoexceptThunks)
     EXPECT_NE(noexcept_entry.rcall, nullptr);
 }
 
+TEST(VTable, GivenMemberAdaptersWhenEntriesAreBuiltThenDirectSlotsRemainCallableAcrossMemberKinds)
+{
+    fw::test_support::MemberAdapterTarget target{ .factor = 4, .offset = 6 };
+    const fw::test_support::MemberAdapterTarget const_target{ .factor = 5, .offset = 7 };
+
+    auto mutable_adapter = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::scale);
+    auto const_adapter = fw::member_ref(const_target, &fw::test_support::MemberAdapterTarget::scale_const);
+    auto object_adapter = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::offset);
+    auto noexcept_adapter = fw::member_ref(target, &fw::test_support::MemberAdapterTarget::scale_noexcept);
+
+    const auto mutable_entry = fw::detail::signature_entry_factory<decltype(mutable_adapter), int(int)>::make();
+    const auto const_entry = fw::detail::signature_entry_factory<decltype(const_adapter), int(int)>::make();
+    const auto object_entry = fw::detail::signature_entry_factory<decltype(object_adapter), int&()>::make();
+    const auto noexcept_entry = fw::detail::signature_entry_factory<decltype(noexcept_adapter), int(int) noexcept>::make();
+
+    EXPECT_EQ(mutable_entry.lcall(&mutable_adapter, 3), 12);
+    EXPECT_EQ(mutable_entry.clcall(&mutable_adapter, 2), 8);
+    EXPECT_EQ(mutable_entry.rcall(&mutable_adapter, 4), 16);
+    EXPECT_EQ(const_entry.clcall(&const_adapter, 3), 10);
+    EXPECT_EQ(object_entry.lcall(&object_adapter), 6);
+    object_entry.rcall(&object_adapter) = 9;
+    EXPECT_EQ(target.offset, 9);
+    EXPECT_EQ(noexcept_entry.lcall(&noexcept_adapter, 2), 8);
+}
+
 TEST(VTable, GivenStoredTypesWhenLifecycleFlagsAreBuiltThenTrivialSmallMetadataMatchesTheirTraits)
 {
     const auto* trivial_table = TrivialUnaryVTable::get();

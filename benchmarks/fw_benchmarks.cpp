@@ -7,11 +7,13 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <new>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -26,9 +28,30 @@ struct benchmark_result
     std::string_view name;
     std::size_t iterations;
     double ns_per_op;
+    double allocations_per_op;
+    double bytes_per_op;
+    std::size_t peak_live_bytes;
 };
 
 volatile std::uint64_t g_sink = 0;
+
+struct allocation_snapshot
+{
+    std::size_t allocations{ 0 };
+    std::size_t deallocations{ 0 };
+    std::size_t requested_bytes{ 0 };
+    std::size_t live_bytes{ 0 };
+    std::size_t peak_live_bytes{ 0 };
+};
+
+struct allocation_header
+{
+    void* base{ nullptr };
+    std::size_t size{ 0 };
+};
+
+inline allocation_snapshot g_allocation_stats{};
+inline bool g_track_allocations = false;
 
 #if defined(__clang__) || defined(__GNUC__)
 #define FW_BENCHMARK_NOINLINE __attribute__((noinline))
@@ -53,6 +76,66 @@ inline void clobber_memory()
 #if defined(__clang__) || defined(__GNUC__)
     asm volatile("" : : : "memory");
 #endif
+}
+
+[[nodiscard]] inline std::uintptr_t align_up(std::uintptr_t value, std::size_t alignment) noexcept
+{
+    return (value + alignment - 1u) & ~(static_cast<std::uintptr_t>(alignment) - 1u);
+}
+
+inline void reset_allocation_stats() noexcept
+{
+    g_allocation_stats = {};
+}
+
+[[nodiscard]] inline allocation_snapshot current_allocation_stats() noexcept
+{
+    return g_allocation_stats;
+}
+
+[[nodiscard]] inline void* tracked_allocate(std::size_t size, std::size_t alignment)
+{
+    const std::size_t requested_size = size == 0 ? 1 : size;
+    const std::size_t effective_alignment = std::max<std::size_t>(alignment, alignof(std::max_align_t));
+    const std::size_t total_size = requested_size + effective_alignment - 1u + sizeof(allocation_header);
+
+    void* raw = std::malloc(total_size);
+    if (!raw)
+    {
+        throw std::bad_alloc{};
+    }
+
+    const auto raw_address = reinterpret_cast<std::uintptr_t>(raw) + sizeof(allocation_header);
+    const auto aligned_address = align_up(raw_address, effective_alignment);
+    auto* header = reinterpret_cast<allocation_header*>(aligned_address - sizeof(allocation_header));
+    header->base = raw;
+    header->size = requested_size;
+
+    if (g_track_allocations)
+    {
+        ++g_allocation_stats.allocations;
+        g_allocation_stats.requested_bytes += requested_size;
+        g_allocation_stats.live_bytes += requested_size;
+        g_allocation_stats.peak_live_bytes = std::max(g_allocation_stats.peak_live_bytes, g_allocation_stats.live_bytes);
+    }
+
+    return reinterpret_cast<void*>(aligned_address);
+}
+
+inline void tracked_deallocate(void* ptr) noexcept
+{
+    if (!ptr)
+    {
+        return;
+    }
+
+    auto* header = reinterpret_cast<allocation_header*>(reinterpret_cast<std::uintptr_t>(ptr) - sizeof(allocation_header));
+    if (g_track_allocations)
+    {
+        ++g_allocation_stats.deallocations;
+        g_allocation_stats.live_bytes -= header->size;
+    }
+    std::free(header->base);
 }
 
 inline int next_input(std::uint64_t& state) noexcept
@@ -130,6 +213,22 @@ struct move_only_small
     int operator()(int value) const noexcept
     {
         return value + *bias;
+    }
+};
+
+struct move_only_small_noalloc
+{
+    int bias{ 3 };
+
+    explicit move_only_small_noalloc(int value) noexcept : bias(value) {}
+    move_only_small_noalloc(move_only_small_noalloc&&) noexcept = default;
+    move_only_small_noalloc& operator=(move_only_small_noalloc&&) noexcept = default;
+    move_only_small_noalloc(const move_only_small_noalloc&) = delete;
+    move_only_small_noalloc& operator=(const move_only_small_noalloc&) = delete;
+
+    int operator()(int value) const noexcept
+    {
+        return value + bias;
     }
 };
 
@@ -230,18 +329,31 @@ benchmark_result run_benchmark(std::string_view name, Runner&& runner)
         best_ns_per_op = std::min(best_ns_per_op, static_cast<double>(elapsed.count()) / static_cast<double>(iterations));
     }
 
-    return { name, iterations, best_ns_per_op };
+    reset_allocation_stats();
+    g_track_allocations = true;
+    runner(iterations);
+    g_track_allocations = false;
+    const auto memory = current_allocation_stats();
+
+    return { name,
+             iterations,
+             best_ns_per_op,
+             static_cast<double>(memory.allocations) / static_cast<double>(iterations),
+             static_cast<double>(memory.requested_bytes) / static_cast<double>(iterations),
+             memory.peak_live_bytes };
 }
 
 void print_section(std::string_view title, const std::vector<benchmark_result>& results)
 {
     std::cout << "\n" << title << "\n";
-    std::cout << std::left << std::setw(38) << "benchmark" << std::right << std::setw(14) << "iterations" << std::setw(14) << "ns/op" << "\n";
-    std::cout << std::string(66, '-') << "\n";
+    std::cout << std::left << std::setw(38) << "benchmark" << std::right << std::setw(14) << "iterations" << std::setw(12) << "ns/op"
+              << std::setw(12) << "alloc/op" << std::setw(12) << "bytes/op" << std::setw(14) << "peak bytes" << "\n";
+    std::cout << std::string(102, '-') << "\n";
     for (const auto& result : results)
     {
         std::cout << std::left << std::setw(38) << result.name << std::right << std::setw(14) << result.iterations << std::setw(14) << std::fixed
-                  << std::setprecision(2) << result.ns_per_op << "\n";
+                  << std::setprecision(2) << result.ns_per_op << std::setw(12) << result.allocations_per_op << std::setw(12) << result.bytes_per_op
+                  << std::setw(14) << result.peak_live_bytes << "\n";
     }
 }
 
@@ -339,6 +451,14 @@ std::vector<benchmark_result> move_only_results()
     std::vector<benchmark_result> results;
 
 #if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 202110L
+    results.push_back(run_benchmark("std::move_only_function noalloc", [&](std::size_t iterations) {
+        construct_and_invoke_loop(
+            [](int seed) {
+                return std::move_only_function<int(int)>(move_only_small_noalloc{ (seed & 15) + 1 });
+            },
+            iterations);
+    }));
+
     results.push_back(run_benchmark("std::move_only_function move-only ctor+call", [&](std::size_t iterations) {
         construct_and_invoke_loop(
             [](int seed) {
@@ -355,6 +475,14 @@ std::vector<benchmark_result> move_only_results()
             iterations);
     }));
 #endif
+
+    results.push_back(run_benchmark("fw::move_only_wrapper noalloc", [&](std::size_t iterations) {
+        construct_and_invoke_loop(
+            [](int seed) {
+                return fw::move_only_function_wrapper<int(int)>(move_only_small_noalloc{ (seed & 15) + 1 });
+            },
+            iterations);
+    }));
 
     results.push_back(run_benchmark("fw::move_only_wrapper move-only ctor+call", [&](std::size_t iterations) {
         construct_and_invoke_loop(
@@ -393,6 +521,114 @@ std::vector<benchmark_result> member_adapter_results()
     return results;
 }
 } // namespace
+
+void* operator new(std::size_t size)
+{
+    return tracked_allocate(size, alignof(std::max_align_t));
+}
+
+void* operator new[](std::size_t size)
+{
+    return tracked_allocate(size, alignof(std::max_align_t));
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment)
+{
+    return tracked_allocate(size, static_cast<std::size_t>(alignment));
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment)
+{
+    return tracked_allocate(size, static_cast<std::size_t>(alignment));
+}
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return tracked_allocate(size, alignof(std::max_align_t));
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return tracked_allocate(size, alignof(std::max_align_t));
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return tracked_allocate(size, static_cast<std::size_t>(alignment));
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return tracked_allocate(size, static_cast<std::size_t>(alignment));
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void operator delete(void* ptr) noexcept
+{
+    tracked_deallocate(ptr);
+}
+
+void operator delete[](void* ptr) noexcept
+{
+    tracked_deallocate(ptr);
+}
+
+void operator delete(void* ptr, std::size_t) noexcept
+{
+    tracked_deallocate(ptr);
+}
+
+void operator delete[](void* ptr, std::size_t) noexcept
+{
+    tracked_deallocate(ptr);
+}
+
+void operator delete(void* ptr, std::align_val_t) noexcept
+{
+    tracked_deallocate(ptr);
+}
+
+void operator delete[](void* ptr, std::align_val_t) noexcept
+{
+    tracked_deallocate(ptr);
+}
+
+void operator delete(void* ptr, std::size_t, std::align_val_t) noexcept
+{
+    tracked_deallocate(ptr);
+}
+
+void operator delete[](void* ptr, std::size_t, std::align_val_t) noexcept
+{
+    tracked_deallocate(ptr);
+}
 
 int main()
 {

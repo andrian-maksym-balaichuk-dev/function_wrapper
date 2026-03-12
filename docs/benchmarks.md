@@ -10,6 +10,7 @@ The benchmark suite currently measures:
 - large callable invocation
 - small callable construction plus one call
 - move-only callable construction plus one call
+- move-only construction plus one call without callable-owned allocation
 - member binding via lambda vs `fw::member_ref`
 
 Compared call surfaces include:
@@ -50,6 +51,9 @@ Each table prints:
 - benchmark name
 - calibrated iteration count
 - best-of-5 `steady_clock` samples in nanoseconds per operation
+- allocations per operation from a separate tracked pass
+- requested bytes per operation from the same tracked pass
+- peak live bytes observed during the tracked pass
 
 These are local microbenchmarks, not a portability claim. Compare rows on the same machine, compiler, standard library, and optimization level.
 
@@ -65,50 +69,54 @@ They are included as one reference point only. Treat them as machine-specific.
 
 ### Small callable invocation
 
-| Benchmark | ns/op |
-| --- | ---: |
-| direct lambda | 1.04 |
-| function pointer | 1.07 |
-| `std::function` | 1.06 |
-| `fw::function_wrapper` | 1.08 |
-| `fw::move_only_function_wrapper` | 1.08 |
-| `fw::function_ref` | 1.07 |
-| `simple_function_ref` | 1.06 |
+| Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
+| --- | ---: | ---: | ---: | ---: |
+| direct lambda | 1.11 | 0.00 | 0.00 | 0 |
+| function pointer | 1.09 | 0.00 | 0.00 | 0 |
+| `std::function` | 1.07 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` | 1.10 | 0.00 | 0.00 | 0 |
+| `fw::move_only_function_wrapper` | 1.09 | 0.00 | 0.00 | 0 |
+| `fw::function_ref` | 1.09 | 0.00 | 0.00 | 0 |
+| `simple_function_ref` | 1.09 | 0.00 | 0.00 | 0 |
 
 ### Large callable invocation
 
-| Benchmark | ns/op |
-| --- | ---: |
-| `std::function` large | 1.08 |
-| `fw::function_wrapper` large | 1.09 |
-| `fw::move_only_function_wrapper` large | 1.08 |
+| Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
+| --- | ---: | ---: | ---: | ---: |
+| `std::function` large | 1.11 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` large | 1.09 | 0.00 | 0.00 | 0 |
+| `fw::move_only_function_wrapper` large | 1.12 | 0.00 | 0.00 | 0 |
 
 ### Small callable construction + call
 
-| Benchmark | ns/op |
-| --- | ---: |
-| `std::function` small ctor+call | 1.50 |
-| `fw::function_wrapper` small ctor+call | 1.49 |
-| `fw::move_only_wrapper` small ctor+call | 1.49 |
+| Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
+| --- | ---: | ---: | ---: | ---: |
+| `std::function` small ctor+call | 1.88 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` small ctor+call | 1.79 | 0.00 | 0.00 | 0 |
+| `fw::move_only_wrapper` small ctor+call | 1.61 | 0.00 | 0.00 | 0 |
 
 ### Move-only construction + call
 
-| Benchmark | ns/op |
-| --- | ---: |
-| `fw::move_only_wrapper` move-only ctor+call | 19.03 |
-| `fw::move_only_wrapper` large move-only | 39.27 |
+| Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
+| --- | ---: | ---: | ---: | ---: |
+| `fw::move_only_wrapper` noalloc | 1.53 | 0.00 | 0.00 | 0 |
+| `fw::move_only_wrapper` move-only ctor+call | 19.63 | 1.00 | 4.00 | 4 |
+| `fw::move_only_wrapper` large move-only | 37.36 | 2.00 | 268.00 | 268 |
 
 ### Member adapter invocation
 
-| Benchmark | ns/op |
-| --- | ---: |
-| `std::function` member via lambda | 1.04 |
-| `fw::function_wrapper` member_ref | 1.49 |
-| direct `fw::member_ref` | 1.03 |
+| Benchmark | ns/op | alloc/op | bytes/op | peak bytes |
+| --- | ---: | ---: | ---: | ---: |
+| `std::function` member via lambda | 1.05 | 0.00 | 0.00 | 0 |
+| `fw::function_wrapper` member_ref | 1.54 | 0.00 | 0.00 | 0 |
+| direct `fw::member_ref` | 1.03 | 0.00 | 0.00 | 0 |
 
 ## Notes
 
 - `std::move_only_function` rows are skipped automatically if the current standard library does not provide it.
 - `std::move_only_function` rows were skipped in the sample run above because the local standard library did not provide it.
+- `fw::function_wrapper member_ref` uses a dedicated internal member-adapter dispatch path in this build; the remaining gap to the lambda baseline is wrapper overhead, not an extra adapter lambda.
+- `fw::move_only_wrapper noalloc` is the cleaner wrapper-overhead row for move-only ownership. The `move-only ctor+call` and `large move-only` rows above also include the cost of constructing callables that allocate `std::unique_ptr` storage on every iteration.
+- Allocation tracking is measured in a separate pass after timing calibration, but the benchmark binary still includes global allocation hooks. Treat the absolute `ns/op` values as relative to this benchmark build, not as canonical library-wide timings.
 - The suite is informative only. It is not a CI pass/fail gate.
 - The benchmark executable lives in [fw_benchmarks.cpp](/Users/andrian/mycode/function_wrapper/benchmarks/fw_benchmarks.cpp).
