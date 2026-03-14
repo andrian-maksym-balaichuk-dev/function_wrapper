@@ -39,6 +39,28 @@ constexpr auto k_static_add_ref_noexcept = fw::static_function_ref<int(int, int)
 static_assert(k_static_add_ref_noexcept.has_value());
 static_assert(k_static_add_ref_noexcept(3, 5) == 8);
 
+#if FW_HAS_CXX20
+constexpr auto k_constexpr_wrapped_add = fw::function_wrapper<int(int, int)>{ &fw::test_support::add };
+static_assert(k_constexpr_wrapped_add.has_value());
+static_assert(k_constexpr_wrapped_add(6, 7) == 13);
+static_assert(k_constexpr_wrapped_add.template target_signature<int(int, int)>() == &fw::test_support::add);
+
+constexpr auto k_constexpr_wrapped_lambda = fw::function_wrapper<int(int)>{ [](int value) { return value + 4; } };
+static_assert(k_constexpr_wrapped_lambda.has_value());
+static_assert(k_constexpr_wrapped_lambda(5) == 9);
+static_assert(k_constexpr_wrapped_lambda.template target_signature<int(int)>() != nullptr);
+
+constexpr auto k_wrapped_from_static =
+    fw::static_function<int(int, int)>::make<fw::test_support::add>().to_function_wrapper();
+static_assert(k_wrapped_from_static(8, 9) == 17);
+
+constexpr auto k_function_array = fw::make_function_array(
+    fw::test_support::add,
+    [](int value) { return value + 1; });
+static_assert(k_function_array[0](2, 3) == 5);
+static_assert(k_function_array[1](4) == 5);
+#endif
+
 static_assert((std::is_same_v<typename decltype(fw::function_wrapper{ &fw::test_support::add_noexcept })::policy_type, fw::policy::default_policy>));
 static_assert((std::is_same_v<typename fw::function_wrapper<int(int, int)>::policy_type, fw::policy::default_policy>));
 static_assert((std::is_same_v<decltype(fw::member_ref(std::declval<fw::test_support::MemberAdapterTarget&>(), &fw::test_support::MemberAdapterTarget::scale)),

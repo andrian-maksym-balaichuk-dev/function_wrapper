@@ -6,7 +6,6 @@
 #include <fw/exceptions.hpp>
 
 #include <array>
-#include <cstring>
 #include <functional>
 #include <type_traits>
 #include <utility>
@@ -39,21 +38,21 @@ class function_ref<R(Args...)>
 public:
     // ── construction and assignment ──────────────────────────────────────────
 
-    function_ref() noexcept = default;
-    function_ref(std::nullptr_t) noexcept {}
+    constexpr function_ref() noexcept = default;
+    constexpr function_ref(std::nullptr_t) noexcept {}
 
-    function_ref(const function_ref&) noexcept = default;
-    function_ref(function_ref&&) noexcept = default;
-    function_ref& operator=(const function_ref&) noexcept = default;
-    function_ref& operator=(function_ref&&) noexcept = default;
+    constexpr function_ref(const function_ref&) noexcept = default;
+    constexpr function_ref(function_ref&&) noexcept = default;
+    constexpr function_ref& operator=(const function_ref&) noexcept = default;
+    constexpr function_ref& operator=(function_ref&&) noexcept = default;
 
-    function_ref& operator=(std::nullptr_t) noexcept
+    constexpr function_ref& operator=(std::nullptr_t) noexcept
     {
         reset();
         return *this;
     }
 
-    function_ref(pointer_type pointer) noexcept
+    constexpr function_ref(pointer_type pointer) noexcept
     {
         bind(pointer);
     }
@@ -61,14 +60,14 @@ public:
 #if FW_HAS_CONCEPTS
     template <class F>
         requires(!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>)
-    function_ref(F& f) noexcept
+    constexpr function_ref(F& f) noexcept
     {
         bind(f);
     }
 
     template <class F>
         requires(callable_lvalue_bindable_v<const F&, R, Args...>)
-    function_ref(const F& f) noexcept
+    constexpr function_ref(const F& f) noexcept
     {
         bind(f);
     }
@@ -83,26 +82,26 @@ public:
 
     template <class Object, class Member>
         requires(!std::is_const_v<Object> && member_bindable_v<Object&, Member, R, Args...>)
-    function_ref(Object& object, Member member) noexcept
+    constexpr function_ref(Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 
     template <class Object, class Member>
         requires(member_bindable_v<const Object&, Member, R, Args...>)
-    function_ref(const Object& object, Member member) noexcept
+    constexpr function_ref(const Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 #else
     template <class F, std::enable_if_t<!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>, int> = 0>
-    function_ref(F& f) noexcept
+    constexpr function_ref(F& f) noexcept
     {
         bind(f);
     }
 
     template <class F, std::enable_if_t<callable_lvalue_bindable_v<const F&, R, Args...>, int> = 0>
-    function_ref(const F& f) noexcept
+    constexpr function_ref(const F& f) noexcept
     {
         bind(f);
     }
@@ -114,33 +113,33 @@ public:
     function_ref(const F&&) = delete;
 
     template <class Object, class Member, std::enable_if_t<!std::is_const_v<Object> && member_bindable_v<Object&, Member, R, Args...>, int> = 0>
-    function_ref(Object& object, Member member) noexcept
+    constexpr function_ref(Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 
     template <class Object, class Member, std::enable_if_t<member_bindable_v<const Object&, Member, R, Args...>, int> = 0>
-    function_ref(const Object& object, Member member) noexcept
+    constexpr function_ref(const Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 #endif
 
-    function_ref& operator=(pointer_type pointer) noexcept
+    constexpr function_ref& operator=(pointer_type pointer) noexcept
     {
         bind(pointer);
         return *this;
     }
 
     template <class F, std::enable_if_t<!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>, int> = 0>
-    function_ref& operator=(F& f) noexcept
+    constexpr function_ref& operator=(F& f) noexcept
     {
         bind(f);
         return *this;
     }
 
     template <class F, std::enable_if_t<callable_lvalue_bindable_v<const F&, R, Args...>, int> = 0>
-    function_ref& operator=(const F& f) noexcept
+    constexpr function_ref& operator=(const F& f) noexcept
     {
         bind(f);
         return *this;
@@ -164,19 +163,19 @@ public:
 
     // ── state inspection ─────────────────────────────────────────────────────
 
-    [[nodiscard]] bool has_value() const noexcept
+    [[nodiscard]] constexpr bool has_value() const noexcept
     {
         return mutable_thunk_ != nullptr || const_thunk_ != nullptr;
     }
 
-    [[nodiscard]] explicit operator bool() const noexcept
+    [[nodiscard]] constexpr explicit operator bool() const noexcept
     {
         return has_value();
     }
 
     // ── invocation ───────────────────────────────────────────────────────────
 
-    try_call_result<R> try_call(Args... args) const noexcept(noexcept(mutable_thunk_(*this, std::forward<Args>(args)...)) && noexcept(const_thunk_(*this, std::forward<Args>(args)...)))
+    constexpr try_call_result<R> try_call(Args... args) const noexcept(noexcept(mutable_thunk_(*this, std::forward<Args>(args)...)) && noexcept(const_thunk_(*this, std::forward<Args>(args)...)))
     {
         if (mutable_thunk_)
         {
@@ -205,7 +204,7 @@ public:
         return try_call_result<R>::empty();
     }
 
-    R call(Args... args) const
+    constexpr R call(Args... args) const
     {
         if (mutable_thunk_)
         {
@@ -218,33 +217,34 @@ public:
         throw bad_call{};
     }
 
-    R operator()(Args... args) const
+    constexpr R operator()(Args... args) const
     {
         return call(std::forward<Args>(args)...);
     }
 
     // ── lifecycle helpers ────────────────────────────────────────────────────
 
-    void reset() noexcept
+    constexpr void reset() noexcept
     {
         clear_();
     }
 
-    void swap(function_ref& other) noexcept
+    constexpr void swap(function_ref& other) noexcept
     {
         using std::swap;
         swap(object_, other.object_);
+        swap(function_pointer_, other.function_pointer_);
         swap(mutable_thunk_, other.mutable_thunk_);
         swap(const_thunk_, other.const_thunk_);
         swap(aux_, other.aux_);
     }
 
-    friend void swap(function_ref& lhs, function_ref& rhs) noexcept
+    friend constexpr void swap(function_ref& lhs, function_ref& rhs) noexcept
     {
         lhs.swap(rhs);
     }
 
-    [[nodiscard]] friend bool operator==(const function_ref& ref, std::nullptr_t) noexcept
+    [[nodiscard]] friend constexpr bool operator==(const function_ref& ref, std::nullptr_t) noexcept
     {
         return !ref.has_value();
     }
@@ -267,9 +267,10 @@ public:
 private:
     // ── erased state ─────────────────────────────────────────────────────────
 
-    void clear_() noexcept
+    constexpr void clear_() noexcept
     {
         object_ = nullptr;
+        function_pointer_ = nullptr;
         mutable_thunk_ = nullptr;
         const_thunk_ = nullptr;
         aux_.fill(std::byte{});
@@ -278,26 +279,34 @@ private:
     // Store inline metadata for cases where a raw object pointer is not enough,
     // such as function-pointer and member-pointer bindings.
     template <class T>
-    void store_aux(T value) noexcept
+    constexpr void store_aux(T value) noexcept
     {
         static_assert(std::is_trivially_copyable_v<T>, "fw::function_ref auxiliary payload must be trivially copyable.");
         static_assert(sizeof(T) <= k_aux_storage_size, "fw::function_ref auxiliary payload exceeds inline storage.");
-        std::memcpy(aux_.data(), &value, sizeof(T));
+        aux_.fill(std::byte{});
+        const auto encoded = detail::bit_cast_compat<std::array<std::byte, sizeof(T)>>(value);
+        for (std::size_t index = 0; index < sizeof(T); ++index)
+        {
+            aux_[index] = encoded[index];
+        }
     }
 
     template <class T>
-    [[nodiscard]] T load_aux() const noexcept
+    [[nodiscard]] constexpr T load_aux() const noexcept
     {
         static_assert(std::is_trivially_copyable_v<T>, "fw::function_ref auxiliary payload must be trivially copyable.");
-        T value{};
-        std::memcpy(&value, aux_.data(), sizeof(T));
-        return value;
+        std::array<std::byte, sizeof(T)> encoded{};
+        for (std::size_t index = 0; index < sizeof(T); ++index)
+        {
+            encoded[index] = aux_[index];
+        }
+        return detail::bit_cast_compat<T>(encoded);
     }
 
     // ── erased thunks ────────────────────────────────────────────────────────
 
     template <class F>
-    static R invoke_mutable_callable(const function_ref& self, Args... args)
+    static constexpr R invoke_mutable_callable(const function_ref& self, Args... args)
     {
         auto& fn = *static_cast<F*>(const_cast<void*>(self.object_));
         if constexpr (std::is_void_v<R>)
@@ -312,7 +321,7 @@ private:
     }
 
     template <class F>
-    static R invoke_const_callable(const function_ref& self, Args... args)
+    static constexpr R invoke_const_callable(const function_ref& self, Args... args)
     {
         const auto& fn = *static_cast<const F*>(self.object_);
         if constexpr (std::is_void_v<R>)
@@ -326,9 +335,9 @@ private:
         }
     }
 
-    static R invoke_function_pointer(const function_ref& self, Args... args)
+    static constexpr R invoke_function_pointer(const function_ref& self, Args... args)
     {
-        const auto pointer = self.template load_aux<pointer_type>();
+        const auto pointer = self.function_pointer_;
         if constexpr (std::is_void_v<R>)
         {
             pointer(std::forward<Args>(args)...);
@@ -341,7 +350,7 @@ private:
     }
 
     template <class Object, class Member>
-    static R invoke_mutable_member(const function_ref& self, Args... args)
+    static constexpr R invoke_mutable_member(const function_ref& self, Args... args)
     {
         auto member = self.template load_aux<Member>();
         auto& object = *static_cast<Object*>(const_cast<void*>(self.object_));
@@ -357,7 +366,7 @@ private:
     }
 
     template <class Object, class Member>
-    static R invoke_const_member(const function_ref& self, Args... args)
+    static constexpr R invoke_const_member(const function_ref& self, Args... args)
     {
         auto member = self.template load_aux<Member>();
         const auto& object = *static_cast<const Object*>(self.object_);
@@ -372,16 +381,20 @@ private:
         }
     }
 
-    void bind(pointer_type pointer) noexcept
+    constexpr void bind(pointer_type pointer) noexcept
     {
         clear_();
-        store_aux(pointer);
+        if (pointer == nullptr)
+        {
+            return;
+        }
+        function_pointer_ = pointer;
         mutable_thunk_ = &invoke_function_pointer;
         const_thunk_ = &invoke_function_pointer;
     }
 
     template <class F, std::enable_if_t<!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>, int> = 0>
-    void bind(F& f) noexcept
+    constexpr void bind(F& f) noexcept
     {
         clear_();
         object_ = std::addressof(f);
@@ -389,7 +402,7 @@ private:
     }
 
     template <class F, std::enable_if_t<callable_lvalue_bindable_v<const F&, R, Args...>, int> = 0>
-    void bind(const F& f) noexcept
+    constexpr void bind(const F& f) noexcept
     {
         clear_();
         object_ = std::addressof(f);
@@ -397,7 +410,7 @@ private:
     }
 
     template <class Object, class Member, std::enable_if_t<!std::is_const_v<Object> && member_bindable_v<Object&, Member, R, Args...>, int> = 0>
-    void bind_member(Object& object, Member member) noexcept
+    constexpr void bind_member(Object& object, Member member) noexcept
     {
         clear_();
         object_ = std::addressof(object);
@@ -406,7 +419,7 @@ private:
     }
 
     template <class Object, class Member, std::enable_if_t<member_bindable_v<const Object&, Member, R, Args...>, int> = 0>
-    void bind_member(const Object& object, Member member) noexcept
+    constexpr void bind_member(const Object& object, Member member) noexcept
     {
         clear_();
         object_ = std::addressof(object);
@@ -415,6 +428,7 @@ private:
     }
 
     const void* object_{ nullptr };
+    pointer_type function_pointer_{ nullptr };
     mutable_thunk_t mutable_thunk_{ nullptr };
     const_thunk_t const_thunk_{ nullptr };
     std::array<std::byte, k_aux_storage_size> aux_{};
@@ -438,21 +452,21 @@ class function_ref<R(Args...) noexcept>
         detail::is_exact_nothrow_invocable_r_v<Member, Result, Object, CallArgs...>;
 
 public:
-    function_ref() noexcept = default;
-    function_ref(std::nullptr_t) noexcept {}
+    constexpr function_ref() noexcept = default;
+    constexpr function_ref(std::nullptr_t) noexcept {}
 
-    function_ref(const function_ref&) noexcept = default;
-    function_ref(function_ref&&) noexcept = default;
-    function_ref& operator=(const function_ref&) noexcept = default;
-    function_ref& operator=(function_ref&&) noexcept = default;
+    constexpr function_ref(const function_ref&) noexcept = default;
+    constexpr function_ref(function_ref&&) noexcept = default;
+    constexpr function_ref& operator=(const function_ref&) noexcept = default;
+    constexpr function_ref& operator=(function_ref&&) noexcept = default;
 
-    function_ref& operator=(std::nullptr_t) noexcept
+    constexpr function_ref& operator=(std::nullptr_t) noexcept
     {
         reset();
         return *this;
     }
 
-    function_ref(pointer_type pointer) noexcept
+    constexpr function_ref(pointer_type pointer) noexcept
     {
         bind(pointer);
     }
@@ -460,14 +474,14 @@ public:
 #if FW_HAS_CONCEPTS
     template <class F>
         requires(!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>)
-    function_ref(F& f) noexcept
+    constexpr function_ref(F& f) noexcept
     {
         bind(f);
     }
 
     template <class F>
         requires(callable_lvalue_bindable_v<const F&, R, Args...>)
-    function_ref(const F& f) noexcept
+    constexpr function_ref(const F& f) noexcept
     {
         bind(f);
     }
@@ -482,26 +496,26 @@ public:
 
     template <class Object, class Member>
         requires(!std::is_const_v<Object> && member_bindable_v<Object&, Member, R, Args...>)
-    function_ref(Object& object, Member member) noexcept
+    constexpr function_ref(Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 
     template <class Object, class Member>
         requires(member_bindable_v<const Object&, Member, R, Args...>)
-    function_ref(const Object& object, Member member) noexcept
+    constexpr function_ref(const Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 #else
     template <class F, std::enable_if_t<!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>, int> = 0>
-    function_ref(F& f) noexcept
+    constexpr function_ref(F& f) noexcept
     {
         bind(f);
     }
 
     template <class F, std::enable_if_t<callable_lvalue_bindable_v<const F&, R, Args...>, int> = 0>
-    function_ref(const F& f) noexcept
+    constexpr function_ref(const F& f) noexcept
     {
         bind(f);
     }
@@ -513,33 +527,33 @@ public:
     function_ref(const F&&) = delete;
 
     template <class Object, class Member, std::enable_if_t<!std::is_const_v<Object> && member_bindable_v<Object&, Member, R, Args...>, int> = 0>
-    function_ref(Object& object, Member member) noexcept
+    constexpr function_ref(Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 
     template <class Object, class Member, std::enable_if_t<member_bindable_v<const Object&, Member, R, Args...>, int> = 0>
-    function_ref(const Object& object, Member member) noexcept
+    constexpr function_ref(const Object& object, Member member) noexcept
     {
         bind_member(object, member);
     }
 #endif
 
-    function_ref& operator=(pointer_type pointer) noexcept
+    constexpr function_ref& operator=(pointer_type pointer) noexcept
     {
         bind(pointer);
         return *this;
     }
 
     template <class F, std::enable_if_t<!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>, int> = 0>
-    function_ref& operator=(F& f) noexcept
+    constexpr function_ref& operator=(F& f) noexcept
     {
         bind(f);
         return *this;
     }
 
     template <class F, std::enable_if_t<callable_lvalue_bindable_v<const F&, R, Args...>, int> = 0>
-    function_ref& operator=(const F& f) noexcept
+    constexpr function_ref& operator=(const F& f) noexcept
     {
         bind(f);
         return *this;
@@ -561,17 +575,17 @@ public:
     function_ref& operator=(const F&&) = delete;
 #endif
 
-    [[nodiscard]] bool has_value() const noexcept
+    [[nodiscard]] constexpr bool has_value() const noexcept
     {
         return mutable_thunk_ != nullptr || const_thunk_ != nullptr;
     }
 
-    [[nodiscard]] explicit operator bool() const noexcept
+    [[nodiscard]] constexpr explicit operator bool() const noexcept
     {
         return has_value();
     }
 
-    try_call_result<R> try_call(Args... args) const noexcept
+    constexpr try_call_result<R> try_call(Args... args) const noexcept
     {
         if (mutable_thunk_)
         {
@@ -600,7 +614,7 @@ public:
         return try_call_result<R>::empty();
     }
 
-    R call(Args... args) const
+    constexpr R call(Args... args) const
     {
         if (mutable_thunk_)
         {
@@ -613,31 +627,32 @@ public:
         throw bad_call{};
     }
 
-    R operator()(Args... args) const
+    constexpr R operator()(Args... args) const
     {
         return call(std::forward<Args>(args)...);
     }
 
-    void reset() noexcept
+    constexpr void reset() noexcept
     {
         clear_();
     }
 
-    void swap(function_ref& other) noexcept
+    constexpr void swap(function_ref& other) noexcept
     {
         using std::swap;
         swap(object_, other.object_);
+        swap(function_pointer_, other.function_pointer_);
         swap(mutable_thunk_, other.mutable_thunk_);
         swap(const_thunk_, other.const_thunk_);
         swap(aux_, other.aux_);
     }
 
-    friend void swap(function_ref& lhs, function_ref& rhs) noexcept
+    friend constexpr void swap(function_ref& lhs, function_ref& rhs) noexcept
     {
         lhs.swap(rhs);
     }
 
-    [[nodiscard]] friend bool operator==(const function_ref& ref, std::nullptr_t) noexcept
+    [[nodiscard]] friend constexpr bool operator==(const function_ref& ref, std::nullptr_t) noexcept
     {
         return !ref.has_value();
     }
@@ -658,9 +673,10 @@ public:
 #endif
 
 private:
-    void clear_() noexcept
+    constexpr void clear_() noexcept
     {
         object_ = nullptr;
+        function_pointer_ = nullptr;
         mutable_thunk_ = nullptr;
         const_thunk_ = nullptr;
         aux_.fill(std::byte{});
@@ -669,24 +685,32 @@ private:
     // Store inline metadata for cases where a raw object pointer is not enough,
     // such as function-pointer and member-pointer bindings.
     template <class T>
-    void store_aux(T value) noexcept
+    constexpr void store_aux(T value) noexcept
     {
         static_assert(std::is_trivially_copyable_v<T>, "fw::function_ref auxiliary payload must be trivially copyable.");
         static_assert(sizeof(T) <= k_aux_storage_size, "fw::function_ref auxiliary payload exceeds inline storage.");
-        std::memcpy(aux_.data(), &value, sizeof(T));
+        aux_.fill(std::byte{});
+        const auto encoded = detail::bit_cast_compat<std::array<std::byte, sizeof(T)>>(value);
+        for (std::size_t index = 0; index < sizeof(T); ++index)
+        {
+            aux_[index] = encoded[index];
+        }
     }
 
     template <class T>
-    [[nodiscard]] T load_aux() const noexcept
+    [[nodiscard]] constexpr T load_aux() const noexcept
     {
         static_assert(std::is_trivially_copyable_v<T>, "fw::function_ref auxiliary payload must be trivially copyable.");
-        T value{};
-        std::memcpy(&value, aux_.data(), sizeof(T));
-        return value;
+        std::array<std::byte, sizeof(T)> encoded{};
+        for (std::size_t index = 0; index < sizeof(T); ++index)
+        {
+            encoded[index] = aux_[index];
+        }
+        return detail::bit_cast_compat<T>(encoded);
     }
 
     template <class F>
-    static R invoke_mutable_callable(const function_ref& self, Args... args) noexcept
+    static constexpr R invoke_mutable_callable(const function_ref& self, Args... args) noexcept
     {
         auto& fn = *static_cast<F*>(const_cast<void*>(self.object_));
         if constexpr (std::is_void_v<R>)
@@ -701,7 +725,7 @@ private:
     }
 
     template <class F>
-    static R invoke_const_callable(const function_ref& self, Args... args) noexcept
+    static constexpr R invoke_const_callable(const function_ref& self, Args... args) noexcept
     {
         const auto& fn = *static_cast<const F*>(self.object_);
         if constexpr (std::is_void_v<R>)
@@ -715,9 +739,9 @@ private:
         }
     }
 
-    static R invoke_function_pointer(const function_ref& self, Args... args) noexcept
+    static constexpr R invoke_function_pointer(const function_ref& self, Args... args) noexcept
     {
-        const auto pointer = self.template load_aux<pointer_type>();
+        const auto pointer = self.function_pointer_;
         if constexpr (std::is_void_v<R>)
         {
             pointer(std::forward<Args>(args)...);
@@ -730,7 +754,7 @@ private:
     }
 
     template <class Object, class Member>
-    static R invoke_mutable_member(const function_ref& self, Args... args) noexcept
+    static constexpr R invoke_mutable_member(const function_ref& self, Args... args) noexcept
     {
         auto member = self.template load_aux<Member>();
         auto& object = *static_cast<Object*>(const_cast<void*>(self.object_));
@@ -746,7 +770,7 @@ private:
     }
 
     template <class Object, class Member>
-    static R invoke_const_member(const function_ref& self, Args... args) noexcept
+    static constexpr R invoke_const_member(const function_ref& self, Args... args) noexcept
     {
         auto member = self.template load_aux<Member>();
         const auto& object = *static_cast<const Object*>(self.object_);
@@ -761,16 +785,20 @@ private:
         }
     }
 
-    void bind(pointer_type pointer) noexcept
+    constexpr void bind(pointer_type pointer) noexcept
     {
         clear_();
-        store_aux(pointer);
+        if (pointer == nullptr)
+        {
+            return;
+        }
+        function_pointer_ = pointer;
         mutable_thunk_ = &invoke_function_pointer;
         const_thunk_ = &invoke_function_pointer;
     }
 
     template <class F, std::enable_if_t<!std::is_const_v<F> && callable_lvalue_bindable_v<F&, R, Args...>, int> = 0>
-    void bind(F& f) noexcept
+    constexpr void bind(F& f) noexcept
     {
         clear_();
         object_ = std::addressof(f);
@@ -778,7 +806,7 @@ private:
     }
 
     template <class F, std::enable_if_t<callable_lvalue_bindable_v<const F&, R, Args...>, int> = 0>
-    void bind(const F& f) noexcept
+    constexpr void bind(const F& f) noexcept
     {
         clear_();
         object_ = std::addressof(f);
@@ -786,7 +814,7 @@ private:
     }
 
     template <class Object, class Member, std::enable_if_t<!std::is_const_v<Object> && member_bindable_v<Object&, Member, R, Args...>, int> = 0>
-    void bind_member(Object& object, Member member) noexcept
+    constexpr void bind_member(Object& object, Member member) noexcept
     {
         clear_();
         object_ = std::addressof(object);
@@ -795,7 +823,7 @@ private:
     }
 
     template <class Object, class Member, std::enable_if_t<member_bindable_v<const Object&, Member, R, Args...>, int> = 0>
-    void bind_member(const Object& object, Member member) noexcept
+    constexpr void bind_member(const Object& object, Member member) noexcept
     {
         clear_();
         object_ = std::addressof(object);
@@ -804,6 +832,7 @@ private:
     }
 
     const void* object_{ nullptr };
+    pointer_type function_pointer_{ nullptr };
     mutable_thunk_t mutable_thunk_{ nullptr };
     const_thunk_t const_thunk_{ nullptr };
     std::array<std::byte, k_aux_storage_size> aux_{};

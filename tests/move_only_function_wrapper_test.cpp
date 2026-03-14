@@ -25,6 +25,24 @@ static_assert((MixedMoveOnlyWrapper::contains_signature<int(int, int)>()));
 static_assert((!MixedMoveOnlyWrapper::contains_signature<void()>()));
 static_assert((fw::detail::supports_signature<fw::test_support::NothrowIncrement, int(int) noexcept>::value));
 
+#if FW_HAS_CXX20
+constexpr auto k_constexpr_move_only_add = fw::move_only_function_wrapper<int(int, int)>{ &fw::test_support::add };
+static_assert(k_constexpr_move_only_add.has_value());
+static_assert(k_constexpr_move_only_add(3, 4) == 7);
+static_assert(k_constexpr_move_only_add.template target_signature<int(int, int)>() == &fw::test_support::add);
+
+constexpr auto k_constexpr_move_only_lambda = fw::move_only_function_wrapper<int(int)>{ [](int value) { return value + 6; } };
+static_assert(k_constexpr_move_only_lambda.has_value());
+static_assert(k_constexpr_move_only_lambda(5) == 11);
+static_assert(k_constexpr_move_only_lambda.template target_signature<int(int)>() != nullptr);
+
+constexpr auto k_move_only_function_array = fw::make_move_only_function_array(
+    fw::test_support::add,
+    [](int value) { return value + 2; });
+static_assert(k_move_only_function_array[0](1, 2) == 3);
+static_assert(k_move_only_function_array[1](5) == 7);
+#endif
+
 } // namespace
 
 TEST(MoveOnlyFunctionWrapper, GivenEmptyWrapperWhenObservedThenStateQueriesStayConsistent)

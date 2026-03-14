@@ -4,6 +4,7 @@
 #include <fw/detail/concepts.hpp>
 #include <fw/member_adapter.hpp>
 #include <fw/detail/signature_interface.hpp>
+#include <fw/static_function.hpp>
 #include <fw/detail/vtable.hpp>
 
 #include <array>
@@ -35,22 +36,23 @@ public:
     using policy_type = typename argument_traits::policy;
     using signatures_type = typename argument_traits::signatures;
     using single_signature_type = detail::tl_front_or_t<signatures_type, void()>;
+    using constexpr_storage_type = typename detail::tl_apply<signatures_type, static_function>::type;
     using storage_type = typename argument_traits::template apply<detail::wrapper_storage>;
     using vtable_type = typename argument_traits::template apply<detail::wrapper_vtable>;
 
-    move_only_function_wrapper() noexcept = default;
+    constexpr move_only_function_wrapper() noexcept = default;
 
 #if FW_HAS_CONCEPTS
     template <class F>
         requires(!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::constructible_from<std::decay_t<F>, F&&>)
-    move_only_function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::move_only_function conversion semantics.)
+    constexpr move_only_function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::move_only_function conversion semantics.)
     {
         assign(std::forward<F>(f));
     }
 #else
     template <class F,
               std::enable_if_t<!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::is_constructible_v<std::decay_t<F>, F&&>, int> = 0>
-    move_only_function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::move_only_function conversion semantics.)
+    constexpr move_only_function_wrapper(F&& f) // NOLINT (Intentionally implicit — mirrors std::move_only_function conversion semantics.)
     {
         assign(std::forward<F>(f));
     }
@@ -59,8 +61,18 @@ public:
     move_only_function_wrapper(const move_only_function_wrapper&) = delete;
     move_only_function_wrapper& operator=(const move_only_function_wrapper&) = delete;
 
-    move_only_function_wrapper(move_only_function_wrapper&& other) noexcept
+    constexpr move_only_function_wrapper(move_only_function_wrapper&& other) noexcept
+        : constexpr_storage_(std::move(other.constexpr_storage_)),
+          constexpr_storage_active_(other.constexpr_storage_active_)
     {
+        other.constexpr_storage_.reset();
+        other.constexpr_storage_active_ = false;
+
+        if (detail::is_constant_evaluated_compat())
+        {
+            return;
+        }
+
         if (other.uses_trivial_small_relocate_())
         {
             detail::move_trivial_small_storage(storage_, other.storage_);
@@ -71,11 +83,20 @@ public:
         }
     }
 
-    move_only_function_wrapper& operator=(move_only_function_wrapper&& rhs) noexcept
+    constexpr move_only_function_wrapper& operator=(move_only_function_wrapper&& rhs) noexcept
     {
         if (this != &rhs)
         {
             reset();
+            constexpr_storage_ = std::move(rhs.constexpr_storage_);
+            constexpr_storage_active_ = rhs.constexpr_storage_active_;
+            rhs.constexpr_storage_.reset();
+            rhs.constexpr_storage_active_ = false;
+
+            if (detail::is_constant_evaluated_compat())
+            {
+                return *this;
+            }
 
             if (rhs.uses_trivial_small_relocate_())
             {
@@ -92,7 +113,7 @@ public:
 #if FW_HAS_CONCEPTS
     template <class F>
         requires(!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::constructible_from<std::decay_t<F>, F&&>)
-    move_only_function_wrapper& operator=(F&& f)
+    constexpr move_only_function_wrapper& operator=(F&& f)
     {
         reset();
         assign(std::forward<F>(f));
@@ -101,7 +122,7 @@ public:
 #else
     template <class F,
               std::enable_if_t<!detail::is_specialization_of_v<F, move_only_function_wrapper> && std::is_constructible_v<std::decay_t<F>, F&&>, int> = 0>
-    move_only_function_wrapper& operator=(F&& f)
+    constexpr move_only_function_wrapper& operator=(F&& f)
     {
         reset();
         assign(std::forward<F>(f));
@@ -109,17 +130,22 @@ public:
     }
 #endif
 
-    ~move_only_function_wrapper() noexcept
+    FW_CXX20_CONSTEXPR ~move_only_function_wrapper() noexcept
     {
         reset();
     }
 
-    FW_NODISCARD_MSG("check before calling to avoid bad_call") bool has_value() const noexcept
+    FW_NODISCARD_MSG("check before calling to avoid bad_call") constexpr bool has_value() const noexcept
     {
-        return !storage_.is_empty();
+        if (detail::is_constant_evaluated_compat())
+        {
+            return constexpr_storage_.has_value();
+        }
+
+        return constexpr_storage_active_ || !storage_.is_empty();
     }
 
-    [[nodiscard]] explicit operator bool() const noexcept
+    [[nodiscard]] constexpr explicit operator bool() const noexcept
     {
         return has_value();
     }
@@ -137,11 +163,15 @@ public:
     }
 
     template <class Sig>
-    [[nodiscard]] bool has_bound_signature() const noexcept
+    [[nodiscard]] constexpr bool has_bound_signature() const noexcept
     {
         if constexpr (!contains_signature<Sig>())
         {
             return false;
+        }
+        else if (use_constexpr_storage_())
+        {
+            return constexpr_storage_.template has_bound_signature<Sig>();
         }
         else
         {
@@ -149,61 +179,86 @@ public:
         }
     }
 
-    [[nodiscard]] auto bound_signatures() const noexcept
+    [[nodiscard]] constexpr auto bound_signatures() const noexcept
     {
+        if (use_constexpr_storage_())
+        {
+            return constexpr_storage_.bound_signatures();
+        }
         return bound_signatures_impl_(signatures_type{});
     }
 
+    template <class Sig>
+    [[nodiscard]] constexpr auto target_signature() const noexcept -> detail::signature_pointer_t<Sig>
+    {
+        if constexpr (!contains_signature<Sig>())
+        {
+            return nullptr;
+        }
+        else if (use_constexpr_storage_())
+        {
+            return constexpr_storage_.template target<Sig>();
+        }
+        else if (const auto* pointer = target<detail::signature_pointer_t<Sig>>())
+        {
+            return *pointer;
+        }
+        else
+        {
+            return nullptr;
+        }
+    }
+
     template <class... CallArgs>
-    auto try_call(CallArgs&&... args) &
+    constexpr auto try_call(CallArgs&&... args) &
     {
         return dispatch_try_call_(*this, std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    auto try_call(CallArgs&&... args) const&
+    constexpr auto try_call(CallArgs&&... args) const&
     {
         return dispatch_try_call_(*this, std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    auto try_call(CallArgs&&... args) &&
+    constexpr auto try_call(CallArgs&&... args) &&
     {
         return dispatch_try_call_(std::move(*this), std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    decltype(auto) call(CallArgs&&... args) &
+    constexpr decltype(auto) call(CallArgs&&... args) &
     {
         return dispatch_call_(*this, std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    decltype(auto) call(CallArgs&&... args) const&
+    constexpr decltype(auto) call(CallArgs&&... args) const&
     {
         return dispatch_call_(*this, std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    decltype(auto) call(CallArgs&&... args) &&
+    constexpr decltype(auto) call(CallArgs&&... args) &&
     {
         return dispatch_call_(std::move(*this), std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    decltype(auto) operator()(CallArgs&&... args) &
+    constexpr decltype(auto) operator()(CallArgs&&... args) &
     {
         return call(std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    decltype(auto) operator()(CallArgs&&... args) const&
+    constexpr decltype(auto) operator()(CallArgs&&... args) const&
     {
         return call(std::forward<CallArgs>(args)...);
     }
 
     template <class... CallArgs>
-    decltype(auto) operator()(CallArgs&&... args) &&
+    constexpr decltype(auto) operator()(CallArgs&&... args) &&
     {
         return std::move(*this).call(std::forward<CallArgs>(args)...);
     }
@@ -245,8 +300,16 @@ public:
         return storage_.obj;
     }
 
-    void reset() noexcept
+    constexpr void reset() noexcept
     {
+        constexpr_storage_.reset();
+        constexpr_storage_active_ = false;
+
+        if (detail::is_constant_evaluated_compat())
+        {
+            return;
+        }
+
         if (uses_trivial_small_destroy_())
         {
             detail::destroy_trivial_small_storage(storage_);
@@ -257,9 +320,18 @@ public:
         }
     }
 
-    void swap(move_only_function_wrapper& other) noexcept
+    constexpr void swap(move_only_function_wrapper& other) noexcept
     {
         if (this == &other)
+        {
+            return;
+        }
+
+        using std::swap;
+        swap(constexpr_storage_, other.constexpr_storage_);
+        swap(constexpr_storage_active_, other.constexpr_storage_active_);
+
+        if (detail::is_constant_evaluated_compat())
         {
             return;
         }
@@ -280,7 +352,7 @@ public:
         }
     }
 
-    friend void swap(move_only_function_wrapper& lhs, move_only_function_wrapper& rhs) noexcept
+    friend constexpr void swap(move_only_function_wrapper& lhs, move_only_function_wrapper& rhs) noexcept
     {
         lhs.swap(rhs);
     }
@@ -307,7 +379,7 @@ public:
 
 private:
     template <class... DeclaredSigs>
-    [[nodiscard]] auto bound_signatures_impl_(detail::typelist<DeclaredSigs...>) const noexcept
+    [[nodiscard]] constexpr auto bound_signatures_impl_(detail::typelist<DeclaredSigs...>) const noexcept
     {
         return std::array<bool, sizeof...(DeclaredSigs)>{ has_bound_signature<DeclaredSigs>()... };
     }
@@ -323,8 +395,13 @@ private:
     }
 
     template <class Self, class... CallArgs>
-    static auto dispatch_try_call_(Self&& self, CallArgs&&... args)
+    static constexpr auto dispatch_try_call_(Self&& self, CallArgs&&... args)
     {
+        if (self.use_constexpr_storage_())
+        {
+            return std::forward<Self>(self).constexpr_storage_.try_call(std::forward<CallArgs>(args)...);
+        }
+
         if constexpr (detail::tl_size_v<signatures_type> == 1)
         {
             return std::forward<Self>(self).template try_invoke_signature_<single_signature_type>(std::forward<CallArgs>(args)...);
@@ -346,8 +423,13 @@ private:
     }
 
     template <class Self, class... CallArgs>
-    static decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
+    static constexpr decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
     {
+        if (self.use_constexpr_storage_())
+        {
+            return std::forward<Self>(self).constexpr_storage_.call(std::forward<CallArgs>(args)...);
+        }
+
         if constexpr (detail::tl_size_v<signatures_type> == 1)
         {
             return std::forward<Self>(self).template invoke_signature_<single_signature_type>(std::forward<CallArgs>(args)...);
@@ -411,7 +493,52 @@ private:
     }
 
     template <class F>
-    void assign(F&& f)
+    constexpr void assign(F&& f)
+    {
+        if (detail::is_constant_evaluated_compat())
+        {
+            assign_constexpr_(std::forward<F>(f));
+        }
+        else
+        {
+            assign_runtime_(std::forward<F>(f));
+        }
+    }
+
+    [[nodiscard]] constexpr bool use_constexpr_storage_() const noexcept
+    {
+        if (detail::is_constant_evaluated_compat())
+        {
+            return true;
+        }
+
+        return constexpr_storage_active_ && storage_.is_empty();
+    }
+
+    template <class F>
+    constexpr void assign_constexpr_(F&& f)
+    {
+        using stored_type = std::decay_t<F>;
+
+        if constexpr (std::is_same_v<stored_type, constexpr_storage_type>)
+        {
+            constexpr_storage_ = std::forward<F>(f);
+            constexpr_storage_active_ = constexpr_storage_.has_value();
+        }
+        else if constexpr (constexpr_bindable_callable_v<stored_type>)
+        {
+            constexpr_storage_ = {};
+            constexpr_storage_active_ =
+                bind_constexpr_callable_(constexpr_storage_, std::forward<F>(f), signatures_type{});
+        }
+        else
+        {
+            throw bad_call{};
+        }
+    }
+
+    template <class F>
+    void assign_runtime_(F&& f)
     {
         using stored_type = std::decay_t<F>;
         using resolved_vtable = typename detail::vtable_instance_from_list<stored_type, policy_type, signatures_type>::type;
@@ -432,6 +559,44 @@ private:
         }
     }
 
+    template <class Stored>
+    static constexpr bool constexpr_bindable_callable_v = self_type::template constexpr_bindable_callable_impl_<Stored>(signatures_type{});
+
+    template <class Stored, class... DeclaredSigs>
+    static constexpr bool constexpr_bindable_callable_impl_(detail::typelist<DeclaredSigs...>)
+    {
+        return (std::is_convertible_v<Stored, detail::signature_pointer_t<DeclaredSigs>> || ...);
+    }
+
+    template <class Sig, class F>
+    static constexpr bool bind_constexpr_signature_(constexpr_storage_type& storage, F&& f)
+    {
+        using pointer_type = detail::signature_pointer_t<Sig>;
+
+        if constexpr (std::is_convertible_v<std::decay_t<F>, pointer_type>)
+        {
+            storage.template bind<Sig>(static_cast<pointer_type>(f));
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    template <class F, class... DeclaredSigs>
+    static constexpr bool bind_constexpr_callable_(
+        constexpr_storage_type& storage,
+        F&& f,
+        detail::typelist<DeclaredSigs...>)
+    {
+        bool any = false;
+        ((any = bind_constexpr_signature_<DeclaredSigs>(storage, std::forward<F>(f)) || any), ...);
+        return any;
+    }
+
+    constexpr_storage_type constexpr_storage_{};
+    bool constexpr_storage_active_{false};
     storage_type storage_{};
 };
 
@@ -439,7 +604,7 @@ template <class F>
 move_only_function_wrapper(F) -> move_only_function_wrapper<policy::default_policy, detail::fn_sig_t<F>>;
 
 template <class Policy = policy::default_policy, class... Fs>
-auto make_move_only_function_array(Fs&&... fs)
+constexpr auto make_move_only_function_array(Fs&&... fs)
 {
     static_assert(sizeof...(Fs) > 0, "fw::make_move_only_function_array requires at least one callable.");
     using sigs_tl = detail::unique_tl<detail::fn_sig_t<Fs>...>;

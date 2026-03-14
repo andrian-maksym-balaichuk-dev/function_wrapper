@@ -172,34 +172,34 @@ public:
         return std::move(*this).call(std::forward<CallArgs>(args)...);
     }
 
-    [[nodiscard]] function_wrapper<Sigs...> to_function_wrapper() const&;
+    [[nodiscard]] constexpr function_wrapper<Sigs...> to_function_wrapper() const&;
 
     template <class Policy>
-    [[nodiscard]] function_wrapper<Policy, Sigs...> to_function_wrapper() const&;
+    [[nodiscard]] constexpr function_wrapper<Policy, Sigs...> to_function_wrapper() const&;
 
-    [[nodiscard]] function_wrapper<Sigs...> to_function_wrapper() &&;
+    [[nodiscard]] constexpr function_wrapper<Sigs...> to_function_wrapper() &&;
 
     template <class Policy>
-    [[nodiscard]] function_wrapper<Policy, Sigs...> to_function_wrapper() &&;
+    [[nodiscard]] constexpr function_wrapper<Policy, Sigs...> to_function_wrapper() &&;
 
-    explicit operator function_wrapper<Sigs...>() const&
+    constexpr explicit operator function_wrapper<Sigs...>() const&
     {
         return to_function_wrapper();
     }
 
     template <class Policy>
-    explicit operator function_wrapper<Policy, Sigs...>() const&
+    constexpr explicit operator function_wrapper<Policy, Sigs...>() const&
     {
         return to_function_wrapper<Policy>();
     }
 
-    explicit operator function_wrapper<Sigs...>() &&
+    constexpr explicit operator function_wrapper<Sigs...>() &&
     {
         return std::move(*this).to_function_wrapper();
     }
 
     template <class Policy>
-    explicit operator function_wrapper<Policy, Sigs...>() &&
+    constexpr explicit operator function_wrapper<Policy, Sigs...>() &&
     {
         return std::move(*this).template to_function_wrapper<Policy>();
     }
@@ -209,32 +209,48 @@ private:
     template <class Self, class... CallArgs>
     static constexpr auto dispatch_try_call_(Self&& self, CallArgs&&... args)
     {
-        using best_match = detail::best_signature_t<detail::typelist<Sigs...>, CallArgs...>;
-
-        if constexpr (!best_match::found)
+        if constexpr (sizeof...(Sigs) == 1)
         {
-            static_assert(best_match::found, "fw::static_function: no declared signature accepts these arguments.");
+            using only_signature = detail::tl_front_t<detail::typelist<Sigs...>>;
+            return std::forward<Self>(self).template try_invoke_signature_<only_signature>(std::forward<CallArgs>(args)...);
         }
         else
         {
-            static_assert(!best_match::ambiguous, "fw::static_function: call is ambiguous across declared signatures.");
-            return std::forward<Self>(self).template try_invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            using best_match = detail::best_signature_t<detail::typelist<Sigs...>, CallArgs...>;
+
+            if constexpr (!best_match::found)
+            {
+                static_assert(best_match::found, "fw::static_function: no declared signature accepts these arguments.");
+            }
+            else
+            {
+                static_assert(!best_match::ambiguous, "fw::static_function: call is ambiguous across declared signatures.");
+                return std::forward<Self>(self).template try_invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            }
         }
     }
 
     template <class Self, class... CallArgs>
     static constexpr decltype(auto) dispatch_call_(Self&& self, CallArgs&&... args)
     {
-        using best_match = detail::best_signature_t<detail::typelist<Sigs...>, CallArgs...>;
-
-        if constexpr (!best_match::found)
+        if constexpr (sizeof...(Sigs) == 1)
         {
-            static_assert(best_match::found, "fw::static_function: no declared signature accepts these arguments.");
+            using only_signature = detail::tl_front_t<detail::typelist<Sigs...>>;
+            return std::forward<Self>(self).template invoke_signature_<only_signature>(std::forward<CallArgs>(args)...);
         }
         else
         {
-            static_assert(!best_match::ambiguous, "fw::static_function: call is ambiguous across declared signatures.");
-            return std::forward<Self>(self).template invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            using best_match = detail::best_signature_t<detail::typelist<Sigs...>, CallArgs...>;
+
+            if constexpr (!best_match::found)
+            {
+                static_assert(best_match::found, "fw::static_function: no declared signature accepts these arguments.");
+            }
+            else
+            {
+                static_assert(!best_match::ambiguous, "fw::static_function: call is ambiguous across declared signatures.");
+                return std::forward<Self>(self).template invoke_signature_<typename best_match::type>(std::forward<CallArgs>(args)...);
+            }
         }
     }
 

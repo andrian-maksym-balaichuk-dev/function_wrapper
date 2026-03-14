@@ -2,6 +2,7 @@
 #define FW_DETAIL_CONCEPTS_HPP
 
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -26,9 +27,30 @@
 #if __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
 #define FW_LIKELY [[likely]]
 #define FW_UNLIKELY [[unlikely]]
+#define FW_HAS_CXX20 1
 #else
 #define FW_LIKELY
 #define FW_UNLIKELY
+#define FW_HAS_CXX20 0
+#endif
+
+#if __cplusplus >= 202302L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202302L)
+#define FW_HAS_CXX23 1
+#else
+#define FW_HAS_CXX23 0
+#endif
+
+#if FW_HAS_CXX20
+#define FW_CXX20_CONSTEXPR constexpr
+#else
+#define FW_CXX20_CONSTEXPR
+#endif
+
+#if defined(__cpp_lib_bit_cast) && __cpp_lib_bit_cast >= 201806L
+#define FW_HAS_BIT_CAST 1
+#include <bit>
+#else
+#define FW_HAS_BIT_CAST 0
 #endif
 
 #if defined(__cpp_consteval) && __cpp_consteval >= 201811L
@@ -70,6 +92,31 @@ inline constexpr bool always_false_v = false;
 
 template <class T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+constexpr bool is_constant_evaluated_compat() noexcept
+{
+#if FW_HAS_CXX20
+    return std::is_constant_evaluated();
+#else
+    return false;
+#endif
+}
+
+template <class To, class From>
+FW_CXX20_CONSTEXPR To bit_cast_compat(const From& source) noexcept
+{
+    static_assert(sizeof(To) == sizeof(From), "fw::detail::bit_cast_compat requires same-size types.");
+    static_assert(std::is_trivially_copyable_v<To>, "fw::detail::bit_cast_compat requires trivially copyable destination.");
+    static_assert(std::is_trivially_copyable_v<From>, "fw::detail::bit_cast_compat requires trivially copyable source.");
+
+#if FW_HAS_BIT_CAST
+    return std::bit_cast<To>(source);
+#else
+    To destination{};
+    std::memcpy(&destination, &source, sizeof(To));
+    return destination;
+#endif
+}
 
 template <class T, template <class...> class Template>
 struct is_specialization_of : std::false_type
@@ -771,7 +818,7 @@ template <class R, class... Args>
 struct signature_invoker<R(Args...)>
 {
     template <class Self, class... CallArgs>
-    static R invoke(Self&& self, CallArgs&&... args)
+    static constexpr R invoke(Self&& self, CallArgs&&... args)
     {
         return std::forward<Self>(self).call(static_cast<Args>(std::forward<CallArgs>(args))...);
     }
@@ -781,20 +828,20 @@ template <class R, class... Args>
 struct signature_invoker<R(Args...) noexcept>
 {
     template <class Self, class... CallArgs>
-    static R invoke(Self&& self, CallArgs&&... args) noexcept(noexcept(std::forward<Self>(self).call(static_cast<Args>(std::forward<CallArgs>(args))...)))
+    static constexpr R invoke(Self&& self, CallArgs&&... args) noexcept(noexcept(std::forward<Self>(self).call(static_cast<Args>(std::forward<CallArgs>(args))...)))
     {
         return std::forward<Self>(self).call(static_cast<Args>(std::forward<CallArgs>(args))...);
     }
 };
 
 template <class Sig, class Base, class... CallArgs>
-decltype(auto) invoke_signature_call(Base&& base, CallArgs&&... args) noexcept(noexcept(signature_invoker<Sig>::invoke(std::forward<Base>(base), std::forward<CallArgs>(args)...)))
+constexpr decltype(auto) invoke_signature_call(Base&& base, CallArgs&&... args) noexcept(noexcept(signature_invoker<Sig>::invoke(std::forward<Base>(base), std::forward<CallArgs>(args)...)))
 {
     return signature_invoker<Sig>::invoke(std::forward<Base>(base), std::forward<CallArgs>(args)...);
 }
 
 template <class Sig, class Base, class... CallArgs>
-auto invoke_signature_try_call(Base&& base, CallArgs&&... args) noexcept(noexcept(std::forward<Base>(base).try_call(std::forward<CallArgs>(args)...)))
+constexpr auto invoke_signature_try_call(Base&& base, CallArgs&&... args) noexcept(noexcept(std::forward<Base>(base).try_call(std::forward<CallArgs>(args)...)))
 {
     return std::forward<Base>(base).try_call(std::forward<CallArgs>(args)...);
 }

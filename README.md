@@ -4,6 +4,8 @@
 
 `fw::function_wrapper` stores one callable and exposes it through any number of declared call signatures — with deterministic, library-defined dispatch. Declared signatures may be either `R(Args...)` or `R(Args...) noexcept`. Owning wrappers use `fw::policy::default_policy` when no policy is specified, and still accept an explicit leading policy such as `fw::policy::sbo<48>` when you want custom SBO sizing. `fw::move_only_function_wrapper` provides the same dispatch model for move-only callables, and `fw::function_ref` adds a zero-allocation non-owning callable view.
 
+Minimum standard support is C++17 for the runtime library. C++20 and newer additionally enable the owning constexpr path for `fw::function_wrapper`, `fw::move_only_function_wrapper`, `fw::make_function_array`, `fw::make_move_only_function_array`, and `fw::static_function::to_function_wrapper()`.
+
 ---
 
 ## The Problem With `std::function`
@@ -103,6 +105,8 @@ target_link_libraries(example PRIVATE fw::wrapper)
 ## Features
 
 - **Header-only** — one include path, no compiled library to link.
+- **C++17 runtime floor** — all runtime wrapper/view functionality builds in C++17 mode.
+- **Extra constexpr support in C++20+** — owner wrappers and array/factory helpers gain compile-time construction and invocation for pointer-backed callables and noncapturing lambdas.
 - **Multi-signature dispatch** — declare as many `R(Args...)` or `R(Args...) noexcept` signatures as needed; the correct one is selected at compile time.
 - **Deterministic ranking policy** — exact match wins; then reference/cv binding; then arithmetic promotions and conversions; then string-like conversions; then class hierarchy; then single-step user-defined implicit conversions. Explicit conversions are never used automatically.
 - **Strict `noexcept` binding** — a `noexcept` signature only accepts nothrow-invocable targets, and `R(Args...)` / `R(Args...) noexcept` may not coexist for the same argument list.
@@ -305,7 +309,8 @@ When a call could match more than one declared signature, `fw` applies a fixed p
 **Requirements:**
 
 - CMake 3.20+
-- C++23-capable compiler (GCC 13+, Clang 16+, MSVC 19.35+)
+- C++17 compiler for the runtime library
+- C++20 compiler if you want the owning constexpr wrapper path
 - GoogleTest — fetched automatically for test builds
 - Conan 2.x — only needed for Conan packaging
 - Clang/LLVM tools — only needed for coverage reports
@@ -330,6 +335,18 @@ cmake --install cmake-build-release --prefix /tmp/fw-install
 ```
 
 See [Development Guide](docs/development.md) for the full local workflow, IDE setup, coverage, and packaging steps.
+
+## Benchmarks
+
+The repository ships a local benchmark executable in [fw_benchmarks.cpp](benchmarks/fw_benchmarks.cpp). A direct local check can be done with:
+
+```bash
+cmake -S . -B /tmp/fw-bench-check -DCMAKE_CXX_STANDARD=20 -DFW_BUILD_TESTS=OFF -DBUILD_TESTING=OFF -DFW_BUILD_BENCHMARKS=ON
+cmake --build /tmp/fw-bench-check --target fw_benchmarks
+/tmp/fw-bench-check/fw_benchmarks
+```
+
+The benchmark suite compares `fw` wrappers against standard-library callable wrappers and lightweight reference adapters when those facilities are available in the active standard library. Some rows may be skipped, for example if `std::move_only_function` is not present in the current implementation.
 
 ---
 
@@ -373,10 +390,8 @@ See [Development Guide](docs/development.md) for the full local workflow, IDE se
 | Requirement | Version |
 |---|---|
 | CMake | 3.20+ |
-| C++ standard | C++23 |
-| Compiler (GCC) | 13+ |
-| Compiler (Clang) | 16+ |
-| Compiler (MSVC) | 19.35+ |
+| C++ standard | C++17 runtime floor, C++20+ for owning constexpr wrappers |
+| Compiler | Any compiler with solid C++17 support; use C++20 mode for the owning constexpr path |
 | Conan (optional) | 2.x |
 
 ---
